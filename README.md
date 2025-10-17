@@ -14,7 +14,7 @@ ch_client = clickhouse_connect.get_client(host=os.environ.get('CH_HOST') port=os
 ## Команда запуска контейнера
 
 ```
-docker run -d -e СH_HOST='11.11.11.11' -e CH_PORT=8123 -e CH_USER='read_only' -e CH_PASSWORD='123456' -e API_KEY_DEEPSEEK='YOUR_API_KEY' -it rees46/mydockercontainername:latest
+docker run -d -e СH_HOST='10.2.1.11' -e CH_PORT=8123 -e CH_USER='read_only' -e CH_PASSWORD='' -e API_KEY_DEEPSEEK='sk-api_key' -it <image_id>
 ```
 ## Безопасность
 - Настройки БД должны позволять только запросы чтения
