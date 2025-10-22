@@ -8,13 +8,13 @@
 ## Строка подключения к БД
 
 ```
-ch_client = clickhouse_connect.get_client(host=os.environ.get('CH_HOST') port=os.environ.get('CH_PORT'), username=os.environ.get('CH_USER') password=os.environ.get('CH_PASSWORD'))
+client_ch = clickhouse_connect.get_client(host=os.environ.get('CH_HOST') port=os.environ.get('CH_PORT'), username=os.environ.get('CH_USER') password=os.environ.get('CH_PASSWORD'))
 ```
 
 ## Команда запуска контейнера
 
 ```
-docker run -d -e СH_HOST='10.2.1.11' -e CH_PORT=8123 -e CH_USER='read_only' -e CH_PASSWORD='' -e API_KEY_DEEPSEEK='sk-api_key' -it <image_id>
+docker run -d -e СH_HOST='10.2.1.11' -e CH_PORT=8123 -e CH_USER='read_only' -e CH_PASSWORD='' -e API_KEY_DEEPSEEK='sk-api_key' -it <image_name>
 ```
 ## Безопасность
 - Настройки БД должны позволять только запросы чтения
