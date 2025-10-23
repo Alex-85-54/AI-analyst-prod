@@ -1,15 +1,21 @@
-FROM python:3.10
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim as base
 
-RUN apt-get -y update && apt-get -y upgrade && apt-get install build-essential
+ENV PYTHONUNBUFFERED=1
+ENV UV_CACHE_DIR=/root/.cache/uv
+ENV PYTHONPATH=/app
+ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
-COPY ./requirements.txt .
+# Копирование файлов зависимостей
+ADD pyproject.toml uv.lock ./
 
-RUN pip install --upgrade pip
-RUN pip install --upgrade pip setuptools
-RUN python -m pip install -r requirements.txt
+# Синхронизируем зависимости
+RUN uv sync --frozen --no-dev
 
-COPY . .
+CMD ["tail", "-f", "/dev/null"]
 
-CMD ["python", "main.py"]
+FROM base
+
+COPY . /app
+CMD ["uv", "run", "main.py"]
