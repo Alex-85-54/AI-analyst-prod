@@ -1,21 +1,15 @@
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim as base
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
 
-ENV PYTHONUNBUFFERED=1
-ENV UV_CACHE_DIR=/root/.cache/uv
-ENV PYTHONPATH=/app
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1 \
+  UV_CACHE_DIR=/root/.cache/uv \
+  PYTHONPATH=/app \
+  PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
-# Копирование файлов зависимостей
-ADD pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev && rm -rf $UV_CACHE_DIR
 
-# Синхронизируем зависимости
-RUN uv sync --frozen --no-dev
+COPY . .
 
-CMD ["tail", "-f", "/dev/null"]
-
-FROM base
-
-COPY . /app
-CMD ["uv", "run", "main.py"]
+CMD ["uv", "run", "--no-sync", "main.py"]

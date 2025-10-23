@@ -17,12 +17,19 @@ from langchain.schema import SystemMessage
 from langchain.prompts import MessagesPlaceholder
 from langchain.memory import ConversationBufferMemory
 from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
 import asyncio
 import nest_asyncio
 from config import ALLOWED_USERS
 
 nest_asyncio.apply()
+
 
 # НАСТРОЙКА ЛОГИРОВАНИЯ С РОТАЦИЕЙ
 def setup_logging():
@@ -30,59 +37,73 @@ def setup_logging():
     # Создаем логгер
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    
+
     # Очищаем существующие обработчики
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
-    
+
     # Создаем обработчик с ротацией (100 МБ макс, 1 бэкап файл)
     log_handler = RotatingFileHandler(
-        filename='logs.log',
+        filename="logs.log",
         maxBytes=50 * 1024 * 1024,  # 100 МБ
         backupCount=1,  # Храним 1 бэкап файл (logs.log.1)
-        encoding='utf-8'
+        encoding="utf-8",
     )
-    
+
     # Форматирование
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     log_handler.setFormatter(formatter)
-    
+
     # Добавляем обработчик к логгеру
     logger.addHandler(log_handler)
-    
+
     return logger
+
 
 logger = setup_logging()
 logger.info("START_LOGGING")
 
 # Конфигурация безопасности
-os.environ['AGENT_MODE'] = 'STRICT'
+os.environ["AGENT_MODE"] = "STRICT"
+
 
 # Подключение к БД
 def connect_to_base(host, port, user, password):
     try:
-        client = clickhouse_connect.get_client(host=host, port=port, username=user, password=password)
+        client = clickhouse_connect.get_client(
+            host=host, port=port, username=user, password=password
+        )
         logger.debug("Connection to the database is successful")
         return client
     except Exception as e:
         logger.error(f"Error connecting to database: {str(e)}")
         raise Exception(f"Error connecting to database: {str(e)}")
 
-client_ch = connect_to_base(os.environ.get('СH_HOST'), os.environ.get('CH_PORT'), os.environ.get('CH_USER'), os.environ.get('CH_PASSWORD'))
+
+client_ch = connect_to_base(
+    os.environ.get("CH_HOST"),
+    os.environ.get("CH_PORT"),
+    os.environ.get("CH_USER"),
+    os.environ.get("CH_PASSWORD"),
+)
+
 
 def clean_sql_query(query: str):
     """Очищает SQL-запрос от маркеров кода"""
     # Удаляем блоки кода
-    q = re.sub(r'```sql\s*', '', query, flags=re.IGNORECASE)
-    q = re.sub(r'```\s*', '', q)
-    
+    q = re.sub(r"```sql\s*", "", query, flags=re.IGNORECASE)
+    q = re.sub(r"```\s*", "", q)
+
     # Удаляем слово "sql" в начале строки
-    q = re.sub(r'^\s*sql\s*', '', q, flags=re.IGNORECASE)
-    
+    q = re.sub(r"^\s*sql\s*", "", q, flags=re.IGNORECASE)
+
     # Удаляем лишние пробелы и переносы строк
     q = q.strip()
-    
+
     return q
+
 
 def auto_correct_table_names(query: str) -> str:
     """
@@ -91,23 +112,35 @@ def auto_correct_table_names(query: str) -> str:
     """
     # Список таблиц, которые нужно исправлять
     tables = [
-        'also_viewed', 'bulk_messages', 'bulk_messages_hot', 'chain_messages',
-        'events', 'order_items', 'popup_events', 'search_events', 'story_events'
+        "also_viewed",
+        "bulk_messages",
+        "bulk_messages_hot",
+        "chain_messages",
+        "events",
+        "order_items",
+        "popup_events",
+        "search_events",
+        "story_events",
     ]
-    
+
     corrected_query = query
-    
+
     for table in tables:
         # Паттерн для поиска таблицы БЕЗ префикса rees46.
         # Используем негативную опережающую проверку чтобы исключить случаи где уже есть rees46.
-        pattern = rf'(?<!rees46\.)\b({table})\b'
-        replacement = f'rees46.{table}'
-        corrected_query = re.sub(pattern, replacement, corrected_query, flags=re.IGNORECASE)
-    
+        pattern = rf"(?<!rees46\.)\b({table})\b"
+        replacement = f"rees46.{table}"
+        corrected_query = re.sub(
+            pattern, replacement, corrected_query, flags=re.IGNORECASE
+        )
+
     if corrected_query != query:
-        logger.info(f"The request was automatically corrected: {query} -> {corrected_query}")
-    
+        logger.info(
+            f"The request was automatically corrected: {query} -> {corrected_query}"
+        )
+
     return corrected_query
+
 
 def safe_clickhouse_query(query: str):
     """Выполняет SQL-запросы только для чтения с валидацией"""
@@ -119,65 +152,86 @@ def safe_clickhouse_query(query: str):
     corrected_query = auto_correct_table_names(cleaned_query)
 
     # Защита от инъекций
-    forbidden_keywords = ['insert', 'update', 'delete', 'drop', 'alter', 'create', 'grant']
-    if any(re.search(rf'\b{kw}\b', corrected_query.lower()) for kw in forbidden_keywords):
+    forbidden_keywords = [
+        "insert",
+        "update",
+        "delete",
+        "drop",
+        "alter",
+        "create",
+        "grant",
+    ]
+    if any(
+        re.search(rf"\b{kw}\b", corrected_query.lower()) for kw in forbidden_keywords
+    ):
         error_msg = "Error: Prohibited operation"
         logger.error(error_msg)
         return error_msg
-    
+
     # Только SELECT/SHOW/DESCRIBE/EXPLAIN
-    if not re.match(r'^\s*(select|show|describe|with|explain)', corrected_query, re.IGNORECASE):
+    if not re.match(
+        r"^\s*(select|show|describe|with|explain)", corrected_query, re.IGNORECASE
+    ):
         error_msg = "Error: Read-only requests are allowed"
         logger.error(error_msg)
         return error_msg
-       
+
     try:
         logger.debug(f"Request corrected: {corrected_query}")
         result = client_ch.query_df(corrected_query)
         logger.debug(f"Request result num: {len(result)} lines")
-        
+
         # Если результат пустой, возвращаем информативное сообщение
         if len(result) == 0:
             return "Запрос выполнен успешно, но не вернул данных. Проверьте условия фильтрации."
-        
+
         return result
     except Exception as e:
         error_msg = f"Database request error: {str(e)}"
         logger.error(error_msg)
         return error_msg
 
+
 # Разбиение документа на чанки
 def get_chunks(splitter, text):
     chunks = []
     for chunk in splitter.split_text(text):
-        if hasattr(chunk, 'page_content'):
+        if hasattr(chunk, "page_content"):
             page_content = chunk.page_content
-            metadata = getattr(chunk, 'metadata', {}).copy()
+            metadata = getattr(chunk, "metadata", {}).copy()
             metadata.update({"meta": "data"})
             chunks.append(Document(page_content=page_content, metadata=metadata))
         else:
             chunks.append(Document(page_content=chunk, metadata={"meta": "data"}))
     return chunks
 
+
 # Инструмент 2: RAG для схемы базы данных
 def setup_rag_agent():
     """Инициализация векторной базы знаний о схеме"""
     try:
-        file_md = open('db_schema_docs.md', encoding='utf-8').read()
+        file_md = open("db_schema_docs.md", encoding="utf-8").read()
         text_splitter = MarkdownHeaderTextSplitter(
             headers_to_split_on=[("#", "Header 1"), ("##", "Header 2")],
-            strip_headers=False
+            strip_headers=False,
         )
         chunks = get_chunks(text_splitter, file_md)
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                                            model_kwargs={'device': 'cpu'},
-                                            encode_kwargs={'normalize_embeddings': True})
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
         return FAISS.from_documents(chunks, embeddings)
     except Exception as e:
         logger.error(f"Error when creating a RAG: {str(e)}")
-        return FAISS.from_texts(["Ошибка загрузки схемы БД"], HuggingFaceEmbeddings(model_name="cointegrated/rubert-tiny2"))
+        return FAISS.from_texts(
+            ["Ошибка загрузки схемы БД"],
+            HuggingFaceEmbeddings(model_name="cointegrated/rubert-tiny2"),
+        )
+
 
 vector_db = setup_rag_agent()
+
 
 def schema_retriever(query: str) -> str:
     """Поиск информации о структуре БД"""
@@ -187,6 +241,7 @@ def schema_retriever(query: str) -> str:
     except Exception as e:
         logger.error(f"Ошибка при поиске в схеме БД: {str(e)}")
         return "Ошибка при поиске в схеме БД"
+
 
 # Инструмент 3: Python для сложных вычислений
 python_repl = PythonREPL()
@@ -200,7 +255,7 @@ tools = [
             "EXECUTING SQL QUERIES TO A DATABASE. USE THIS TOOL TO GET DATA FROM THE DATABASE. "
             "Input: SQL query. Output: the result is in the form of a table. "
             "EXAMPLE: To get order data, use: SELECT * FROM rees46.order_items WHERE shop_id = 123"
-        )
+        ),
     ),
     Tool(
         name="Database_Schema",
@@ -209,17 +264,17 @@ tools = [
             "SEARCH FOR INFORMATION ABOUT THE DATABASE STRUCTURE. "
             "Use it to specify the names of tables and columns before executing the query. "
             "Entry: natural language in Russian."
-        )
+        ),
     ),
     Tool(
         name="Python_REPL",
         func=python_repl.run,
         description=(
-            "Executing Python code for complex calculations." 
+            "Executing Python code for complex calculations."
             "Use it only when it is impossible to solve through SQL. "
             "Input: valid Python code."
-        )
-    )
+        ),
+    ),
 ]
 
 # Системный промпт с ограничениями
@@ -272,10 +327,10 @@ memory = ConversationBufferMemory(memory_key="chat_history", return_messages=Tru
 agent = initialize_agent(
     tools=tools,
     llm=ChatOpenAI(
-        api_key = os.environ.get('API_KEY_DEEPSEEK'),
+        api_key=os.environ.get("API_KEY_DEEPSEEK"),
         base_url="https://api.deepseek.com/v1",
         model="deepseek-chat",
-        temperature=0.1
+        temperature=0.1,
     ),
     agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
     verbose=True,
@@ -283,91 +338,110 @@ agent = initialize_agent(
     handle_parsing_errors=True,
     max_iterations=5,
     early_stopping_method="generate",
-    agent_kwargs={
-        "system_message": SystemMessage(content=system_prompt)
-    }
+    agent_kwargs={"system_message": SystemMessage(content=system_prompt)},
 )
+
 
 def analyze_query_parameters(query: str) -> dict:
     """
     Анализирует запрос на наличие shop_id и временного периода
     """
     analysis = {
-        'has_shop_id': False,
-        'has_time_period': False,
-        'missing_parameters': [],
-        'recommendation': ''
+        "has_shop_id": False,
+        "has_time_period": False,
+        "missing_parameters": [],
+        "recommendation": "",
     }
-    
+
     # паттерны для поиска shop_id
     shop_id_patterns = [
-        r'shop_id\s*[=:]\s*(\d+)',
-        r'магазин\w*\s*[№#]?\s*(\d+)',
-        r'store\w*\s*[№#]?\s*(\d+)',
-        r'\b(\d{3,5})\b.*(магазин|shop|store)',
-        r'(магазин|shop|store).*?\b(\d{3,5})\b',
-        r'ид\s*магазин\w*\s*(\d+)',
-        r'id\s*store\w*\s*(\d+)'
+        r"shop_id\s*[=:]\s*(\d+)",
+        r"магазин\w*\s*[№#]?\s*(\d+)",
+        r"store\w*\s*[№#]?\s*(\d+)",
+        r"\b(\d{3,5})\b.*(магазин|shop|store)",
+        r"(магазин|shop|store).*?\b(\d{3,5})\b",
+        r"ид\s*магазин\w*\s*(\d+)",
+        r"id\s*store\w*\s*(\d+)",
     ]
-    
+
     for pattern in shop_id_patterns:
         if re.search(pattern, query, re.IGNORECASE):
-            analysis['has_shop_id'] = True
+            analysis["has_shop_id"] = True
             break
-    
+
     # паттерны для временных периодов
     time_patterns = [
-        r'\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
-        r'\d{2}\.\d{2}\.\d{4}', # DD.MM.YYYY
-        r'\d{4} год', r'\d{4} г',
-        r'за\s+\d{4}', r'в\s+\d{4}',
-        r'с\s+\d', r'по\s+\d',
-        r'месяц', r'квартал', r'недел', r'день',
-        r'период', r'время', r'дата',
-        r'сегодня', r'вчера', r'недавн',
-        r'последн\w+\s+\d+\s+(дн|мес|нед)',
-        r'за\s+последн\w+\s+\d+\s+(дн|мес|нед)'
+        r"\d{4}-\d{2}-\d{2}",  # YYYY-MM-DD
+        r"\d{2}\.\d{2}\.\d{4}",  # DD.MM.YYYY
+        r"\d{4} год",
+        r"\d{4} г",
+        r"за\s+\d{4}",
+        r"в\s+\d{4}",
+        r"с\s+\d",
+        r"по\s+\d",
+        r"месяц",
+        r"квартал",
+        r"недел",
+        r"день",
+        r"период",
+        r"время",
+        r"дата",
+        r"сегодня",
+        r"вчера",
+        r"недавн",
+        r"последн\w+\s+\d+\s+(дн|мес|нед)",
+        r"за\s+последн\w+\s+\d+\s+(дн|мес|нед)",
     ]
-    
+
     for pattern in time_patterns:
         if re.search(pattern, query, re.IGNORECASE):
-            analysis['has_time_period'] = True
+            analysis["has_time_period"] = True
             break
-    
+
     # Формируем рекомендации
-    if not analysis['has_shop_id']:
-        analysis['missing_parameters'].append('shop_id')
-    if not analysis['has_time_period']:
-        analysis['missing_parameters'].append('временной период')
-    
-    if analysis['missing_parameters']:
-        analysis['recommendation'] = (
+    if not analysis["has_shop_id"]:
+        analysis["missing_parameters"].append("shop_id")
+    if not analysis["has_time_period"]:
+        analysis["missing_parameters"].append("временной период")
+
+    if analysis["missing_parameters"]:
+        analysis["recommendation"] = (
             "Для выполнения запроса мне нужны уточнения:\n\n"
-            + ("- Укажите **shop_id** (идентификатор магазина)\n" if not analysis['has_shop_id'] else "")
-            + ("- Укажите **временной период** (например: 2024 год, последний месяц, конкретные даты)\n" if not analysis['has_time_period'] else "")
+            + (
+                "- Укажите **shop_id** (идентификатор магазина)\n"
+                if not analysis["has_shop_id"]
+                else ""
+            )
+            + (
+                "- Укажите **временной период** (например: 2024 год, последний месяц, конкретные даты)\n"
+                if not analysis["has_time_period"]
+                else ""
+            )
             + "\nПожалуйста, уточните эти параметры, и я смогу выполнить ваш запрос."
         )
-    
+
     return analysis
 
 
 # Основная функция для обработки запросов пользователя
 def process_user_query(query: str) -> str:
     """Основная функция обработки запросов пользователя с проверкой параметров"""
-    
+
     # Сначала анализируем запрос на наличие обязательных параметров
     analysis = analyze_query_parameters(query)
-    
+
     # Если отсутствуют обязательные параметры - сразу возвращаем запрос на уточнение
-    if analysis['missing_parameters']:
-        logger.info(f"Request '{query}' requires specification of parameters: {analysis['missing_parameters']}")
-        return analysis['recommendation']
-    
+    if analysis["missing_parameters"]:
+        logger.info(
+            f"Request '{query}' requires specification of parameters: {analysis['missing_parameters']}"
+        )
+        return analysis["recommendation"]
+
     # Если все параметры есть - выполняем обычный процесс
     try:
         # Получаем информацию о схеме БД
         schema_info = schema_retriever(query)
-        
+
         enhanced_prompt = f"""
 Пользовательский запрос: {query}
 
@@ -375,8 +449,8 @@ def process_user_query(query: str) -> str:
 {schema_info}
 
 Параметры запроса:
-- shop_id: {'УКАЗАН' if analysis['has_shop_id'] else 'НЕ УКАЗАН'}
-- временной период: {'УКАЗАН' if analysis['has_time_period'] else 'НЕ УКАЗАН'}
+- shop_id: {"УКАЗАН" if analysis["has_shop_id"] else "НЕ УКАЗАН"}
+- временной период: {"УКАЗАН" if analysis["has_time_period"] else "НЕ УКАЗАН"}
 
 INSTRUCTION: You MUST use ClickHouse_Query tool to execute SQL query against the database.
 DO NOT invent or hallucinate data! Follow these steps:
@@ -396,13 +470,14 @@ If the query fails, analyze the error and try a different approach using the sch
 
 Generate the SQL query now and execute it through the tool.
 """
-        
+
         result = agent.run(enhanced_prompt)
         return result
-        
+
     except Exception as e:
         logger.error(f"Request processing error: {str(e)}")
         return f"Произошла ошибка при обработке запроса: {str(e)}"
+
 
 # Обновляем функцию force_tool_usage для использования новой логики
 def force_tool_usage(query):
@@ -419,13 +494,13 @@ def get_ai_response(question: str) -> str:
     except Exception as e:
         logger.error(f"Request processing error tlg: {str(e)}")
         return "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже."
-      
+
 
 # Обработчики для Telegram бота
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отправляет приветственное сообщение при команде /start"""
     user = update.message.from_user
-    
+
     # Проверяем авторизацию
     if not is_user_authorized(user.id, user.username):
         welcome_unauthorized = (
@@ -437,9 +512,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "3. После добавления в белый список вы получите полный доступ к функциям бота\n\n"
             "💡 Уже есть доступ? Попробуйте отправить любой запрос для проверки."
         )
-        await update.message.reply_text(welcome_unauthorized, parse_mode='Markdown')
+        await update.message.reply_text(welcome_unauthorized, parse_mode="Markdown")
         return
-    
+
     # Приветствие для авторизованных пользователей
     welcome_authorized = (
         "👋 Привет! Я ИИ-аналитик компании REES46.\n"
@@ -451,6 +526,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_authorized)
 
+
 def is_user_authorized(user_id: int, username: str) -> bool:
     """
     Проверяет, есть ли пользователь в белом списке
@@ -458,18 +534,20 @@ def is_user_authorized(user_id: int, username: str) -> bool:
     # Самый надежный способ - проверка по user_id
     if user_id in ALLOWED_USERS:
         return True
-    
+
     # Менее надежный способ - проверка по username (если указан)
     if username:
-        username = username.lower().lstrip('@')
+        username = username.lower().lstrip("@")
         for allowed_id, user_data in ALLOWED_USERS.items():
-            if user_data.get('username', '').lower() == username:
+            if user_data.get("username", "").lower() == username:
                 return True
-    
+
     return False
 
 
-async def keep_typing_indicator(bot: Bot, chat_id: int, stop_event: asyncio.Event, interval: float = 4.0) -> None:
+async def keep_typing_indicator(
+    bot: Bot, chat_id: int, stop_event: asyncio.Event, interval: float = 4.0
+) -> None:
     """Постоянно обновляет typing, пока не придет ответ."""
     try:
         while not stop_event.is_set():
@@ -486,7 +564,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает текстовые сообщения пользователя с проверкой доступа"""
     user = update.message.from_user
     question = update.message.text.strip()
-    
+
     # Обработка кодового слова для получения user_id
     if question.lower() == "my_user_id":
         user_info = (
@@ -497,15 +575,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• Фамилия: {user.last_name if user.last_name else 'не указана'}\n\n"
             f"📋 Перешлите эту информацию администратору для получения доступа к боту."
         )
-        
-        await update.message.reply_text(user_info, parse_mode='Markdown')
+
+        await update.message.reply_text(user_info, parse_mode="Markdown")
         logger.info(f"The user requested his data: {user.first_name} (id:{user.id})")
         return
-    
+
     # Проверяем авторизацию пользователя для обычных запросов
     if not is_user_authorized(user.id, user.username):
-        logger.warning(f"Unauthorized ACCESS: {user.first_name} (id:{user.id}, username:@{user.username})")
-        
+        logger.warning(
+            f"Unauthorized ACCESS: {user.first_name} (id:{user.id}, username:@{user.username})"
+        )
+
         access_denied_message = (
             "⛔ Доступ запрещен.\n"
             "Вы не авторизованы для использования этого бота.\n\n"
@@ -514,25 +594,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "2. Перешлите полученные данные администратору\n"
             "3. После добавления в белый список вы получите доступ"
         )
-        
-        await update.message.reply_text(access_denied_message, parse_mode='Markdown')
+
+        await update.message.reply_text(access_denied_message, parse_mode="Markdown")
         return
-    
+
     # Если пользователь авторизован - обрабатываем запрос
     logger.info(f"Question from {user.first_name} ({user.id}): {question}")
-    
+
     stop_typing_event = asyncio.Event()
     typing_task = asyncio.create_task(
         keep_typing_indicator(context.bot, update.effective_chat.id, stop_typing_event)
     )
-    
+
     try:
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, get_ai_response, question)
         await update.message.reply_text(response)
     except Exception as e:
         logger.error(f"Error when processing a request from a bot user: {str(e)}")
-        await update.message.reply_text("Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже.")
+        await update.message.reply_text(
+            "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже."
+        )
     finally:
         stop_typing_event.set()
         try:
@@ -544,29 +626,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает ошибки в боте"""
     logger.error(f"Error processing the message: {context.error}")
-    
+
     if update.effective_message:
         await update.effective_message.reply_text(
-            "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже.")
+            "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже."
+        )
+
 
 def main():
     """Запускает бота"""
-    # Замените 'YOUR_TELEGRAM_TOKEN' на токен вашего бота
-    application = Application.builder().token("***REMOVED_TELEGRAM_TOKEN***").build()
-    
+    application = Application.builder().token(os.environ.get("TELEGRAM_TOKEN")).build()
+
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start))
-    
+
     # Регистрируем обработчик текстовых сообщений
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+    )
+
     # Регистрируем обработчик ошибок
     application.add_error_handler(error_handler)
-    
+
     # Запускаем бота
     logger.info("Bot running...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
-    main()  
+    main()

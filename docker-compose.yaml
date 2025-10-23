@@ -1,0 +1,15 @@
+x-environment: &environment
+  env_file:
+    - path: ./.env.example
+      required: true
+    - path: ./.env
+      required: false
+
+services:
+  ai-analyst:
+    <<: *environment
+    image: ghcr.io/rees46/ai-analyst:latest
+    build: .
+    command: tail -f /dev/null
+    profiles:
+      - ''
