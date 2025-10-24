@@ -5,11 +5,26 @@ x-environment: &environment
     - path: ./.env
       required: false
 
+networks:
+  rees46:
+    name: rees46
+    driver: bridge
+
 services:
   ai-analyst:
     <<: *environment
     image: ghcr.io/rees46/ai-analyst:latest
-    build: .
-    command: tail -f /dev/null
+    build:
+      context: .
+      target: dev
     profiles:
       - ''
+    networks:
+      - rees46
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /app
+        - action: rebuild
+          path: ./uv.lock

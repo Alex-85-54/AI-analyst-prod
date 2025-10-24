@@ -1,5 +1,7 @@
+PROFILE?=''
+
 up:
-	docker compose up -d
-	
+	docker compose --profile $(PROFILE) up --watch
+
 down:
 	docker compose down
