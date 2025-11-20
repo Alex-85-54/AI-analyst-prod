@@ -1,7 +1,6 @@
 import re
 from typing import Tuple, Optional
 
-
 class QueryValidator:
     """Валидатор пользовательских запросов"""
     

@@ -10,7 +10,7 @@ from datetime import datetime
 def view_logs(log_file_path=None, lines=50, follow=False, level=None):
     """Просмотр логов"""
     if not log_file_path:
-        from NEW.config.settings import settings
+        from config.settings import settings
         log_file_path = settings.LOG_FILE_PATH
     
     if not os.path.exists(log_file_path):

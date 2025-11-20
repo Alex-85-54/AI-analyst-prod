@@ -22,7 +22,7 @@ services:
   ai-analyst:
     <<: *environment
     build:
-      context: ..
+      context: .
       target: prod
     image: your-registry/ai-analyst:${TAG:-latest}
     restart: unless-stopped
