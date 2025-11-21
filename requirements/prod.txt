@@ -1,0 +1,17 @@
+clickhouse-connect==0.8.18
+pandas==2.2.3
+langchain-community==0.3.27
+langchain-core==0.3.72
+langchain-experimental==0.3.4
+langchain-huggingface==0.3.1
+langchain-openai==0.3.28
+langchain-text-splitters==0.3.9
+langgraph==0.5.4
+langgraph-checkpoint==2.1.1
+langgraph-prebuilt==0.5.2
+langgraph-sdk==0.1.74
+faiss-cpu==1.11.0.post1
+sentence-transformers==5.0.0
+python-telegram-bot==22.3
+python-dotenv==1.1.1
+pydantic==2.11.10

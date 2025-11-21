@@ -1,0 +1,39 @@
+x-environment: &environment
+  env_file:
+    - path: ./.env.example
+      required: true
+    - path: ./.env
+      required: false
+
+  environment:
+    - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+    - CH_HOST=${CH_HOST}
+    - CH_PORT=${CH_PORT}
+    - CH_USER=${CH_USER}
+    - CH_PASSWORD=${CH_PASSWORD}
+    - API_KEY_DEEPSEEK=${API_KEY_DEEPSEEK}
+    - AUTH_CONFIG_PATH=${AUTH_CONFIG_PATH}
+    - LOG_FILE_PATH=/app/logs/app.log
+    - LOG_LEVEL=INFO
+    - LOG_MAX_SIZE_MB=100
+    - LOG_BACKUP_COUNT=5
+    - LOG_ENABLE_CONSOLE=true
+services:
+  ai-analyst:
+    <<: *environment
+    build:
+      context: ..
+      target: prod
+    image: your-registry/ai-analyst:${TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - rees46
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "python"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  rees46:
+    external: true

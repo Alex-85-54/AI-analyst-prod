@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="3356f356-1f73-448e-bc24-61d390247e28" name="Changes" comment="[DEV-3321] sync: main to NEW">
+      <change beforePath="$PROJECT_DIR$/.dockerignore" beforeDir="false" afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.dockerignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.env.exapmple" beforeDir="false" afterPath="$PROJECT_DIR$/.env.exapmple" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.idea/misc.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.idea/modules.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.idea/rees46-ai-analyst.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/.idea/vcs.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/Dockerfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/allowed_users.json" beforeDir="false" afterPath="$PROJECT_DIR$/allowed_users.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/agents/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/agents/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/agents/analyst.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/agents/analyst.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/agents/db_schema_docs.md" beforeDir="false" afterPath="$PROJECT_DIR$/app/agents/db_schema_docs.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/agents/tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/agents/tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/auth/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/auth/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/auth/security.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/auth/security.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/bot/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/bot/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot/handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/bot/middleware.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot/middleware.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/database/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/database/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/database/clickhouse.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/database/clickhouse.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/utils/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/utils/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/utils/logging.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/utils/logging.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/app/utils/validators.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/utils/validators.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/config/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/config/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/db_schema_docs.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/logs.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/pyproject.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/requirements/prod.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements/prod.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/run.py" beforeDir="false" afterPath="$PROJECT_DIR$/run.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/scripts/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/scripts/clean_logs.py" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/clean_logs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/scripts/view_logs.py" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/view_logs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/user_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/user_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NEW/uv.lock" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/db_schema_docs.md" beforeDir="false" afterPath="$PROJECT_DIR$/db_schema_docs.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker-compose.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ComposerSettings">
+    <execution />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="WARN_ABOUT_CRLF" value="false" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "Nelfimov"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "git@github.com:rees46/ai-analyst.git",
+    "accountId": "1733b6dc-395b-40f0-b8bd-e28844141b99"
+  }
+}]]></component>
+  <component name="KubernetesApiPersistence"><![CDATA[{}]]></component>
+  <component name="KubernetesApiProvider"><![CDATA[{
+  "isMigrated": true
+}]]></component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="9pOrNaY4" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 6
+}]]></component>
+  <component name="ProjectId" id="35mbeP8NXKEkwsKvC6gZ6HQ8wg0" />
+  <component name="ProjectLevelVcsManager">
+    <OptionsSetting value="false" id="Update" />
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+    <option name="showScratchesAndConsoles" value="false" />
+    <option name="showVisibilityIcons" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "full.screen.before.presentation.mode": "false",
+    "git-widget-placeholder": "sync/main-to-master",
+    "last_opened_file_path": "/Users/nelfimov/Documents/Dev/Python/rees46-ai-analyst",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.first.attach.projects": "true",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-3aa1da707db6-JavaScript-IU-252.27397.103" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="3356f356-1f73-448e-bc24-61d390247e28" name="Changes" comment="" />
+      <created>1763718288867</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1763718288867</updated>
+    </task>
+    <task id="LOCAL-00001" summary="feat: change">
+      <option name="closed" value="true" />
+      <created>1763718924955</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1763718924955</updated>
+    </task>
+    <task id="LOCAL-00002" summary="[DEV-3321] feat: docker compose initial sync">
+      <option name="closed" value="true" />
+      <created>1763719447638</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1763719447638</updated>
+    </task>
+    <task id="LOCAL-00003" summary="[DEV-3321] feat: docker compose initial sync">
+      <option name="closed" value="true" />
+      <created>1763720395495</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1763720395495</updated>
+    </task>
+    <task id="LOCAL-00004" summary="[DEV-3321] sync: main to NEW">
+      <option name="closed" value="true" />
+      <created>1763720676509</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1763720676509</updated>
+    </task>
+    <task id="LOCAL-00005" summary="[DEV-3321] sync: main to NEW">
+      <option name="closed" value="true" />
+      <created>1763720689280</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1763720689280</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="feat: change" />
+    <MESSAGE value="[DEV-3321] feat: docker compose initial sync" />
+    <MESSAGE value="[DEV-3321] sync: main to NEW" />
+    <option name="LAST_COMMIT_MESSAGE" value="[DEV-3321] sync: main to NEW" />
+  </component>
+</project>
