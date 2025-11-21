@@ -2,8 +2,8 @@ import clickhouse_connect
 import re
 from typing import Union, Optional
 import pandas as pd
-from NEW.app.utils.logging import logger
-from NEW.config.settings import settings
+from app.utils.logging import logger
+from config.settings import settings
 
 class ClickHouseClient:
     def __init__(self):

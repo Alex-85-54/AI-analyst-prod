@@ -2,8 +2,8 @@ import json
 import os
 import time
 from typing import Dict, Any, Optional
-from NEW.app.utils.logging import logger
-from NEW.config.settings import settings
+from app.utils.logging import logger
+from config.settings import settings
 
 class SecurityManager:
     """Менеджер безопасности и авторизации с загрузкой из JSON файла"""

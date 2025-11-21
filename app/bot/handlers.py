@@ -1,8 +1,8 @@
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
-from NEW.app.agents.analyst import ai_analyst
-from NEW.app.auth.security import is_user_authorized
-from NEW.app.utils.logging import logger
+from app.agents.analyst import ai_analyst
+from app.auth.security import is_user_authorized
+from app.utils.logging import logger
 import asyncio
 from typing import Dict
 import time

@@ -2,9 +2,9 @@ from langchain.agents import AgentExecutor, initialize_agent
 from langchain.agents.agent_types import AgentType
 from langchain.schema import SystemMessage
 from langchain_openai import ChatOpenAI
-from NEW.app.agents.tools import get_tools, schema_retriever
-from NEW.app.utils.logging import logger
-from NEW.config.settings import settings
+from app.agents.tools import get_tools, schema_retriever
+from app.utils.logging import logger
+from config.settings import settings
 import re
 
 class AIAnalyst:

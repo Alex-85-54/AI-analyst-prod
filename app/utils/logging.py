@@ -4,7 +4,7 @@ import os
 from logging.handlers import RotatingFileHandler
 import json
 from datetime import datetime
-from NEW.config.settings import settings
+from config.settings import settings
 
 class JSONFormatter(logging.Formatter):
     def format(self, record):

@@ -1,7 +1,7 @@
 from telegram.ext import Application
-from NEW.app.bot.handlers import get_handlers, error_handler
-from NEW.app.utils.logging import logger
-from NEW.config.settings import settings
+from app.bot.handlers import get_handlers, error_handler
+from app.utils.logging import logger
+from config.settings import settings
 
 def main():
     """Основная функция запуска приложения"""

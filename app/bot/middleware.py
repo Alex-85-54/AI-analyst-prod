@@ -2,7 +2,7 @@ import time
 from typing import Callable, Dict, Any
 from telegram import Update
 from telegram.ext import ContextTypes
-from NEW.app.utils.logging import logger
+from app.utils.logging import logger
 
 class RateLimitMiddleware:
     """Middleware для ограничения частоты запросов"""
