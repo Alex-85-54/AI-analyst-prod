@@ -26,5 +26,6 @@ services:
         - action: sync
           path: .
           target: /app
+          initial_sync: true
         - action: rebuild
           path: ./uv.lock
