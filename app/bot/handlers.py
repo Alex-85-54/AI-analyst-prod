@@ -10,101 +10,159 @@ import time
 # Простой rate limiting
 user_requests: Dict[int, float] = {}
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
-    user = update.message.from_user
-    
-    if not is_user_authorized(user.id, user.username):
-        welcome_unauthorized = (
-            "👋 Привет! Я ИИ-аналитик компании REES46.\n\n"
-            "🔒 Для доступа к боту требуется авторизация.\n\n"
-            "📋 Чтобы получить доступ:\n"
-            "1. Отправьте сообщение: `my_user_id`\n"
-            "2. Перешлите полученные данные администратору\n"
+    try:
+        user = update.message.from_user
+        logger.info(f"Start command from user_id: {user.id}, username: {user.username}")
+
+        if not is_user_authorized(user.id, user.username):
+            welcome_unauthorized = (
+                "👋 <b>Привет! Я ИИ-аналитик компании REES46.</b>\n\n"
+                "🔒 <b>Для доступа к боту требуется авторизация.</b>\n\n"
+                "📋 <b>Чтобы получить доступ:</b>\n"
+                "1. Отправьте сообщение: <code>my_user_id</code>\n"
+                "2. Перешлите полученные данные администратору\n"
+            )
+            await update.message.reply_text(welcome_unauthorized, parse_mode='HTML')
+            return
+
+        welcome_authorized = (
+            "👋 <b>Привет! Я ИИ-аналитик компании REES46.</b>\n"
+            "Задайте мне вопрос, и я постараюсь помочь!\n\n"
+            "💡 <b>Примеры запросов:</b>\n"
+            "• «Статистика заказов для магазина 4987 за 2024 год»\n"
+            "• «Топ товаров за последний месяц для магазина 4987»\n"
         )
-        await update.message.reply_text(welcome_unauthorized, parse_mode='Markdown')
-        return
-    
-    welcome_authorized = (
-        "👋 Привет! Я ИИ-аналитик компании REES46.\n"
-        "Задайте мне вопрос, и я постараюсь помочь!\n\n"
-        "💡 Примеры запросов:\n"
-        "• «Статистика заказов для магазина 4987 за 2024 год»\n"
-        "• «Топ товаров за последний месяц для магазина 4987»\n"
-    )
-    await update.message.reply_text(welcome_authorized)
+        await update.message.reply_text(welcome_authorized, parse_mode='HTML')
+
+    except Exception as e:
+        logger.error(f"Error in start handler: {str(e)}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка при обработке команды /start")
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик текстовых сообщений"""
-    user = update.message.from_user
-    question = update.message.text.strip()
-    
-    # Rate limiting (1 запрос в 5 секунд)
-    current_time = time.time()
-    if user.id in user_requests:
-        time_passed = current_time - user_requests[user.id]
-        if time_passed < 5:
-            await update.message.reply_text("⚠️ Слишком частые запросы. Подождите немного.")
-            return
-    
-    user_requests[user.id] = current_time
-    
-    # Обработка my_user_id
-    if question.lower() == "my_user_id":
-        user_info = (
-            f"👤 Ваши данные для доступа:\n"
-            f"• User ID: `{user.id}`\n"
-            f"• Username: @{user.username if user.username else 'не указан'}\n"
-            f"• Имя: {user.first_name}\n"
-            f"• Фамилия: {user.last_name if user.last_name else 'не указана'}\n\n"
-            f"📋 Перешлите эту информацию администратору для добавления в файл allowed_users.json"
-        )
-        
-        await update.message.reply_text(user_info, parse_mode='Markdown')
-        logger.info(f"The user requested his data: {user.first_name} (id:{user.id})")
-        return
-    
-    # Проверка авторизации
-    if not is_user_authorized(user.id, user.username):
-        await update.message.reply_text("⛔ Доступ запрещен.")
-        return
-    
-    # Индикатор набора
-    async def typing_indicator():
-        while True:
-            await context.bot.send_chat_action(
-                chat_id=update.effective_chat.id, 
-                action="typing"
-            )
-            await asyncio.sleep(4)
-    
-    typing_task = asyncio.create_task(typing_indicator())
-    
     try:
-        # Обработка запроса в thread pool
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None, 
-            ai_analyst.process_query, 
-            question
-        )
-        
-        await update.message.reply_text(response)
-        
+        user = update.message.from_user
+        question = update.message.text.strip()
+
+        logger.info(f"Message from user_id: {user.id}, username: {user.username}, message: {question}")
+
+        # Обработка my_user_id - проверка авторизации НЕ требуется!
+        if question.lower() == "my_user_id":
+            logger.info(f"User requested their ID: {user.id}")
+
+            # HTML версия (более стабильная)
+            user_info = (
+                f"👤 <b>Ваши данные для доступа:</b>\n"
+                f"• User ID: <code>{user.id}</code>\n"
+                f"• Username: @{user.username if user.username else 'не указан'}\n"
+                f"• Имя: {user.first_name}\n"
+                f"• Фамилия: {user.last_name if user.last_name else 'не указана'}\n\n"
+                f"📋 Перешлите эту информацию администратору для добавления в файл allowed_users.json"
+            )
+
+            await update.message.reply_text(user_info, parse_mode='HTML')
+            logger.info(f"The user requested his data: {user.first_name} (id:{user.id})")
+            return
+
+        # Rate limiting (1 запрос в 5 секунд) - только для авторизованных запросов
+        current_time = time.time()
+        if user.id in user_requests:
+            time_passed = current_time - user_requests[user.id]
+            if time_passed < 5:
+                await update.message.reply_text("⚠️ Слишком частые запросы. Подождите немного.")
+                return
+
+        user_requests[user.id] = current_time
+
+        # Проверка авторизации для обычных запросов
+        logger.info(f"Checking authorization for user_id: {user.id}")
+        if not is_user_authorized(user.id, user.username):
+            logger.warning(f"User {user.id} is not authorized for regular requests")
+
+            access_denied_message = (
+                "⛔ Доступ запрещен.\n\n"
+                "Вы не авторизованы для использования этого бота.\n\n"
+                "💡 Чтобы получить доступ:\n"
+                "1. Отправьте в этот бот сообщение `my_user_id`\n"
+                "2. Перешлите полученные данные администратору\n"
+                "3. После добавления в белый список вы получите доступ"
+            )
+
+            await update.message.reply_text(access_denied_message, parse_mode='Markdown')
+            return
+
+        logger.info(f"User {user.id} is authorized, processing query: {question}")
+
+        # Индикатор набора
+        stop_typing = asyncio.Event()
+
+        async def typing_indicator():
+            try:
+                while not stop_typing.is_set():
+                    await context.bot.send_chat_action(
+                        chat_id=update.effective_chat.id,
+                        action="typing"
+                    )
+                    await asyncio.sleep(3)  # Отправляем каждые 3 секунды
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.debug(f"Typing indicator error: {e}")
+
+        typing_task = asyncio.create_task(typing_indicator())
+
+        try:
+            # Обработка запроса в thread pool
+            loop = asyncio.get_event_loop()
+            logger.info(f"Starting query processing for: {question}")
+            response = await loop.run_in_executor(
+                None,
+                ai_analyst.process_query,
+                question
+            )
+
+            logger.info(f"Query processed successfully, response length: {len(response)}")
+
+            # Проверяем, не слишком ли длинный ответ для Telegram
+            if len(response) > 4000:
+                response = response[:4000] + "\n\n... (сообщение сокращено из-за ограничений Telegram)"
+
+            # Отправляем без parse_mode, если в ответе есть сложное форматирование
+            await update.message.reply_text(response)
+
+        except Exception as e:
+            logger.error(f"Message processing error: {str(e)}", exc_info=True)
+            await update.message.reply_text("Произошла ошибка при обработке вашего запроса.")
+        finally:
+            # Останавливаем индикатор набора
+            stop_typing.set()
+            typing_task.cancel()
+            try:
+                await typing_task
+            except asyncio.CancelledError:
+                pass
+
     except Exception as e:
-        logger.error(f"Message handling error: {str(e)}")
-        await update.message.reply_text("Произошла ошибка при обработке запроса.")
-    finally:
-        typing_task.cancel()
+        logger.error(f"Error in handle_message: {str(e)}", exc_info=True)
+        await update.message.reply_text("Произошла внутренняя ошибка при обработке сообщения.")
+
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
-    logger.error(f"Bot error: {context.error}")
-    
-    if update and update.effective_message:
-        await update.effective_message.reply_text(
-            "Произошла ошибка при обработке вашего запроса."
-        )
+    try:
+        logger.error(f"Bot error: {context.error}", exc_info=True)
+
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "Произошла ошибка при обработке вашего запроса."
+            )
+    except Exception as e:
+        logger.error(f"Error in error handler: {str(e)}", exc_info=True)
+
 
 def get_handlers():
     """Возвращает список обработчиков"""
