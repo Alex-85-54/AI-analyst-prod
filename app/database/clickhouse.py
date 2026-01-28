@@ -1,28 +1,52 @@
 import clickhouse_connect
 import re
+import time
 from typing import Union, Optional
+from hashlib import sha256
 import pandas as pd
 from app.utils.logging import logger
+from app.utils.metrics import track_query_performance
 from config.settings import settings
 
 class ClickHouseClient:
     def __init__(self):
         self.client = self._connect()
+        self._query_cache = {}
+        self._cache_ttl = settings.QUERY_CACHE_TTL
     
     def _connect(self):
-        """Подключение к ClickHouse с ретраями"""
+        """Подключение к ClickHouse с оптимизированными настройками"""
         try:
             client = clickhouse_connect.get_client(
                 host=settings.CH_HOST,
                 port=settings.CH_PORT,
                 username=settings.CH_USER,
-                password=settings.CH_PASSWORD
+                password=settings.CH_PASSWORD,
+                # Оптимизации
+                connect_timeout=10,
+                send_receive_timeout=300,
+                # Используем сжатие для больших результатов
+                compression=True,
             )
             logger.info("Successfully connected to ClickHouse")
             return client
         except Exception as e:
             logger.error(f"ClickHouse connection failed: {str(e)}")
             raise
+    
+    def _get_query_hash(self, query: str) -> str:
+        """Генерация хеша запроса для кэширования"""
+        return sha256(query.encode('utf-8')).hexdigest()
+    
+    def _cleanup_cache(self):
+        """Очистка устаревших записей из кэша"""
+        current_time = time.time()
+        expired_keys = [
+            key for key, (_, timestamp) in self._query_cache.items()
+            if current_time - timestamp > self._cache_ttl
+        ]
+        for key in expired_keys:
+            del self._query_cache[key]
     
     def clean_sql_query(self, query: str) -> str:
         """Очищает SQL-запрос от маркеров кода"""
@@ -49,8 +73,9 @@ class ClickHouseClient:
         
         return corrected_query
     
-    def execute_safe_query(self, query: str) -> Union[pd.DataFrame, str]:
-        """Выполняет безопасные SQL-запросы только для чтения"""
+    @track_query_performance(query_type="clickhouse")
+    def execute_safe_query(self, query: str, use_cache: bool = True) -> Union[pd.DataFrame, str]:
+        """Выполняет безопасные SQL-запросы только для чтения с кэшированием"""
         try:
             # Очистка и коррекция запроса
             cleaned_query = self.clean_sql_query(query)
@@ -61,12 +86,31 @@ class ClickHouseClient:
             if validation_error:
                 return validation_error
             
+            # Проверка кэша (только для SELECT запросов)
+            if use_cache and corrected_query.strip().upper().startswith('SELECT'):
+                query_hash = self._get_query_hash(corrected_query)
+                if query_hash in self._query_cache:
+                    cached_result, timestamp = self._query_cache[query_hash]
+                    if time.time() - timestamp < self._cache_ttl:
+                        logger.info(f"Cache hit for query: {corrected_query[:100]}...")
+                        return cached_result
+                    else:
+                        del self._query_cache[query_hash]
+            
             # Выполнение запроса
             logger.info(f"Executing query: {corrected_query[:200]}...")
             result = self.client.query_df(corrected_query)
             
             if len(result) == 0:
                 return "Запрос выполнен успешно, но не вернул данных."
+            
+            # Сохранение в кэш
+            if use_cache and corrected_query.strip().upper().startswith('SELECT'):
+                query_hash = self._get_query_hash(corrected_query)
+                self._query_cache[query_hash] = (result, time.time())
+                # Очистка старых записей (если кэш слишком большой)
+                if len(self._query_cache) > settings.MAX_QUERY_CACHE_SIZE:
+                    self._cleanup_cache()
             
             return result
             

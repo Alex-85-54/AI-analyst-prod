@@ -1,9 +1,6 @@
 x-environment: &environment
   env_file:
-    - path: ./.env.example
-      required: true
-    - path: ./.env
-      required: false
+    - ./.env
 
   environment:
     - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
