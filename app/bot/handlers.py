@@ -3,12 +3,59 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from app.agents.analyst import ai_analyst
 from app.auth.security import is_user_authorized
 from app.utils.logging import logger
+from app.utils.metrics import track_performance
+from config.settings import settings
 import asyncio
-from typing import Dict
+import concurrent.futures
+from collections.abc import MutableMapping
 import time
 
-# Простой rate limiting
-user_requests: Dict[int, float] = {}
+# Оптимизированный rate limiting с автоматической очисткой
+class TimedDict(MutableMapping):
+    """Словарь с автоматическим удалением устаревших записей"""
+    def __init__(self, ttl: float = 5.0):
+        self._data = {}
+        self._ttl = ttl
+    
+    def __getitem__(self, key):
+        value, timestamp = self._data[key]
+        if time.time() - timestamp > self._ttl:
+            del self._data[key]
+            raise KeyError(key)
+        return value
+    
+    def __setitem__(self, key, value):
+        self._data[key] = (value, time.time())
+    
+    def __delitem__(self, key):
+        del self._data[key]
+    
+    def __iter__(self):
+        self._cleanup()
+        return iter(self._data)
+    
+    def __len__(self):
+        self._cleanup()
+        return len(self._data)
+    
+    def _cleanup(self):
+        """Удаление устаревших записей"""
+        current_time = time.time()
+        expired_keys = [
+            key for key, (_, timestamp) in self._data.items()
+            if current_time - timestamp > self._ttl
+        ]
+        for key in expired_keys:
+            del self._data[key]
+
+# Заменяем простой словарь на оптимизированный
+user_requests: TimedDict = TimedDict(ttl=settings.RATE_LIMIT_WINDOW)
+
+# Создаем пул потоков для обработки запросов
+_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=settings.MAX_CONCURRENT_REQUESTS,
+    thread_name_prefix="analyst_worker"
+)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -68,15 +115,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"The user requested his data: {user.first_name} (id:{user.id})")
             return
 
-        # Rate limiting (1 запрос в 5 секунд) - только для авторизованных запросов
-        current_time = time.time()
-        if user.id in user_requests:
-            time_passed = current_time - user_requests[user.id]
-            if time_passed < 5:
+        # Rate limiting - только для авторизованных запросов
+        try:
+            # Проверяем, есть ли активный запрос (TimedDict автоматически очищает устаревшие)
+            if user.id in user_requests:
                 await update.message.reply_text("⚠️ Слишком частые запросы. Подождите немного.")
                 return
-
-        user_requests[user.id] = current_time
+            user_requests[user.id] = time.time()
+        except KeyError:
+            # Если ключа нет, можно продолжать
+            user_requests[user.id] = time.time()
 
         # Проверка авторизации для обычных запросов
         logger.info(f"Checking authorization for user_id: {user.id}")
@@ -116,11 +164,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         typing_task = asyncio.create_task(typing_indicator())
 
         try:
-            # Обработка запроса в thread pool
+            # Обработка запроса в thread pool (используем глобальный executor)
             loop = asyncio.get_event_loop()
             logger.info(f"Starting query processing for: {question}")
             response = await loop.run_in_executor(
-                None,
+                _executor,
                 ai_analyst.process_query,
                 question
             )

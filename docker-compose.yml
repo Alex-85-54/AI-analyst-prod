@@ -1,9 +1,6 @@
 x-environment: &environment
   env_file:
-    - path: ./.env.example
-      required: true
-    - path: ./.env
-      required: false
+    - ./.env
 
   environment:
     - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
@@ -22,7 +19,7 @@ services:
   ai-analyst:
     <<: *environment
     build:
-      context: ..
+      context: .
       target: prod
     image: your-registry/ai-analyst:${TAG:-latest}
     restart: unless-stopped

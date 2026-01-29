@@ -9,7 +9,7 @@ import sys
 def clean_logs(log_file_path=None, keep_backups=True):
     """Очистка логов"""
     if not log_file_path:
-        from NEW.config.settings import settings
+        from config.settings import settings
         log_file_path = settings.LOG_FILE_PATH
     
     log_dir = os.path.dirname(log_file_path)
@@ -48,7 +48,7 @@ def clean_logs(log_file_path=None, keep_backups=True):
 def show_log_stats(log_file_path=None):
     """Показать статистику логов"""
     if not log_file_path:
-        from NEW.config.settings import settings
+        from config.settings import settings
         log_file_path = settings.LOG_FILE_PATH
     
     log_dir = os.path.dirname(log_file_path)

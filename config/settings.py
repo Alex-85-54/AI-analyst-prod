@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     REQUEST_TIMEOUT: int = Field(60, env="REQUEST_TIMEOUT")
     DB_SCHEMA_PATH: str = Field("db_schema_docs.md", env="DB_SCHEMA_PATH")
     
+    # Performance optimization settings
+    QUERY_CACHE_TTL: int = Field(300, env="QUERY_CACHE_TTL")  # 5 минут
+    SCHEMA_CACHE_SIZE: int = Field(100, env="SCHEMA_CACHE_SIZE")
+    MAX_QUERY_CACHE_SIZE: int = Field(1000, env="MAX_QUERY_CACHE_SIZE")
+    RATE_LIMIT_WINDOW: int = Field(5, env="RATE_LIMIT_WINDOW")  # секунды
+    AGENT_MAX_ITERATIONS: int = Field(5, env="AGENT_MAX_ITERATIONS")  # уменьшено с 5
+    AGENT_MAX_EXECUTION_TIME: int = Field(180, env="AGENT_MAX_EXECUTION_TIME")
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
