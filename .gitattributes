@@ -2,3 +2,4 @@
 Dockerfile merge=ours
 docker-compose.yml merge=ours
 Makefile merge=ours
+allowed_users.json merge=ours
