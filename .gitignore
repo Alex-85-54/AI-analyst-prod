@@ -5,8 +5,10 @@ build/
 dist/
 wheels/
 *.egg-info
-# logs.log
-# .env
+logs.log
+.env
 
 # Virtual environments
 .venv
+.gitattributes
+allowed_users.json
