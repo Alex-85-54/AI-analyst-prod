@@ -5,14 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="56552920-b1c5-45be-8e85-71d4f9488cc7" name="Changes" comment="fix(common): dockerfile and build">
-      <change afterPath="$PROJECT_DIR$/Mi_variant/prompts.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/db_schema_pg.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.dockerignore" beforeDir="false" afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/AI-analyst-prod.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/AI-analyst-prod.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/bot/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot/handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/db_schema_docs.md" beforeDir="false" afterPath="$PROJECT_DIR$/db_schema_docs.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -133,7 +127,9 @@
       <workItem from="1770890419171" duration="17758000" />
       <workItem from="1770969979528" duration="280000" />
       <workItem from="1770982253824" duration="4972000" />
-      <workItem from="1771230409522" duration="12604000" />
+      <workItem from="1771230409522" duration="12831000" />
+      <workItem from="1771247675506" duration="5391000" />
+      <workItem from="1771318280390" duration="7452000" />
     </task>
     <task id="LOCAL-00001" summary="chore(common): git">
       <option name="closed" value="true" />
