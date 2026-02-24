@@ -188,14 +188,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         typing_task = asyncio.create_task(typing_indicator())
 
         try:
-            # Обработка запроса в thread pool (используем глобальный executor)
+            # Обработка запроса в thread pool с явным таймаутом (без него бот может ждать бесконечно)
             loop = asyncio.get_event_loop()
-            logger.info(f"Starting query processing for: {question}")
-            response = await loop.run_in_executor(
-                _executor,
-                ai_analyst.process_query,
-                question
-            )
+            timeout_sec = getattr(settings, "BOT_HANDLER_TIMEOUT", 660.0)
+            logger.info(f"Starting query processing for: {question} (timeout={timeout_sec}s)")
+            try:
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        _executor,
+                        ai_analyst.process_query,
+                        question,
+                    ),
+                    timeout=timeout_sec,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Query processing timed out after {timeout_sec}s")
+                await update.message.reply_text(
+                    "⏱ Запрос занял слишком много времени и был прерван. "
+                    "Попробуйте упростить вопрос или увеличьте BOT_HANDLER_TIMEOUT и AGENT_MAX_EXECUTION_TIME в .env (и перезапустите сервис)."
+                )
+                return
 
             logger.info(f"Query processed successfully, response length: {len(response)}")
 

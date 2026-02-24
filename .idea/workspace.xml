@@ -5,8 +5,21 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="56552920-b1c5-45be-8e85-71d4f9488cc7" name="Changes" comment="fix(common): dockerfile and build">
+      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/agents/analyst.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/agents/analyst.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/agents/db_schema_docs.md" beforeDir="false" afterPath="$PROJECT_DIR$/app/agents/db_schema_docs.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/agents/tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/agents/tools.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/bot/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot/handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/bot/middleware.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot/middleware.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/settings.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/db_schema_docs.md" beforeDir="false" afterPath="$PROJECT_DIR$/db_schema_docs.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/db_schema_pg.md" beforeDir="false" afterPath="$PROJECT_DIR$/db_schema_pg.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -130,6 +143,13 @@
       <workItem from="1771230409522" duration="12831000" />
       <workItem from="1771247675506" duration="5391000" />
       <workItem from="1771318280390" duration="7452000" />
+      <workItem from="1771335070118" duration="699000" />
+      <workItem from="1771395450530" duration="56000" />
+      <workItem from="1771400817345" duration="2210000" />
+      <workItem from="1771405690687" duration="3227000" />
+      <workItem from="1771573398543" duration="26000" />
+      <workItem from="1771918758367" duration="3275000" />
+      <workItem from="1771922515209" duration="3000" />
     </task>
     <task id="LOCAL-00001" summary="chore(common): git">
       <option name="closed" value="true" />

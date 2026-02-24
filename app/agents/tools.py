@@ -1,6 +1,7 @@
 from langchain.tools import Tool
 from langchain_experimental.utilities import PythonREPL
 from app.database.clickhouse import clickhouse_client
+from app.database.postgres import postgres_client, _is_pg_configured as is_pg_configured
 from app.utils.logging import logger
 from app.utils.metrics import track_query_performance
 from langchain_community.vectorstores import FAISS
@@ -10,73 +11,148 @@ from langchain_core.documents import Document
 from config.settings import settings
 from functools import lru_cache
 from hashlib import md5
+import os
 import re
 
+def _schema_files():
+    """Пары (путь к файлу схемы, название БД). PostgreSQL добавляется только если настроен."""
+    files = [(settings.DB_SCHEMA_PATH, "ClickHouse")]
+    if is_pg_configured():
+        files.append((settings.DB_SCHEMA_PATH_PG, "PostgreSQL"))
+    return files
+
+# Паттерн строки-колонки: "- **column_name**: ..." (начало списка колонок)
+_COLUMN_LINE_RE = re.compile(r"^-\s+\*\*[a-zA-Z0-9_]+\*\*:\s*")
+
+
+def _split_table_content(content: str):
+    """
+    Разделяет блок таблицы на смысловую часть (для эмбеддинга) и полный текст.
+    Смысловая часть: название, синонимы, использование, описание (до первого списка колонок).
+    """
+    lines = content.splitlines()
+    semantic_lines = []
+    for line in lines:
+        if _COLUMN_LINE_RE.match(line.strip()):
+            break
+        semantic_lines.append(line)
+    semantic = "\n".join(semantic_lines).rstrip()
+    return semantic if semantic else content
+
+
+def _chunks_from_schema_file(file_path: str, database: str):
+    """Загружает файл схемы и возвращает список Document.
+    В page_content — только смысловая часть (для эмбеддинга): база, название, синонимы, использование, описание.
+    В metadata["full_content"] — полное описание таблицы (для контекста LLM): + колонки + индексы.
+    """
+    text_splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on=[("#", "Header 1"), ("##", "Header 2")],
+        strip_headers=False,
+    )
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            file_md = f.read()
+    except Exception as e:
+        logger.warning(f"RAG: Could not load schema {file_path}: {e}")
+        return []
+    docs = []
+    for chunk in text_splitter.split_text(file_md):
+        content = chunk.page_content if hasattr(chunk, "page_content") else str(chunk)
+        table_match = re.search(r"# Таблица:\s*(\w+)", content)
+        table_name = table_match.group(1) if table_match else "unknown"
+        semantic_part = _split_table_content(content)
+        db_prefix = f"**База данных:** {database}\n\n"
+        # Для эмбеддинга — только смысловая часть (без колонок и индексов)
+        page_content = db_prefix + semantic_part
+        # Для контекста LLM — полное описание таблицы
+        full_content = db_prefix + content
+        meta = {
+            **getattr(chunk, "metadata", {}).copy(),
+            "table_name": table_name,
+            "database": database,
+            "source": "db_schema",
+            "full_content": full_content,
+        }
+        docs.append(Document(page_content=page_content, metadata=meta))
+    return docs
+
+
+def _chunks_from_data_catalog(file_path: str):
+    """Загружает дата-каталог (темы: клиенты, заказы, маркетинг, лояльность и т.д.).
+    Один чанк = одна тема с таблицей таблиц. Используется для тематического поиска по RAG.
+    """
+    text_splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on=[("#", "Header 1")],
+        strip_headers=False,
+    )
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            file_md = f.read()
+    except Exception as e:
+        logger.warning(f"RAG: Could not load data catalog {file_path}: {e}")
+        return []
+    docs = []
+    for chunk in text_splitter.split_text(file_md):
+        content = chunk.page_content if hasattr(chunk, "page_content") else str(chunk)
+        if "ДАТА-КАТАЛОГ:" not in content:
+            continue
+        theme_match = re.search(r"#\s*ДАТА-КАТАЛОГ:\s*(.+)", content)
+        theme = theme_match.group(1).strip() if theme_match else "unknown"
+        meta = {
+            **getattr(chunk, "metadata", {}).copy(),
+            "source": "data_catalog",
+            "theme": theme,
+        }
+        docs.append(Document(page_content=content, metadata=meta))
+    return docs
+
+
 def setup_rag_tool() -> FAISS:
-    """Инициализация RAG для схемы БД (выполняется 1 раз при старте процесса)
-    
-    Улучшения Фазы 1:
-    - Использует модель ai-forever/FRIDA для лучшего понимания русского языка
-    - Добавляет метаданные таблиц к каждому чанку для улучшения поиска
+    """Инициализация RAG для схем БД ClickHouse и PostgreSQL (одна векторная база).
+    В метаданные и в текст каждого чанка включена база данных (ClickHouse/PostgreSQL),
+    чтобы агент выбирал нужный инструмент запроса (ClickHouse_Query / PostgreSQL_Query).
     """
     try:
-        logger.info(f"RAG: Loading schema from {settings.DB_SCHEMA_PATH}...")
-        file_md = open(settings.DB_SCHEMA_PATH, encoding='utf-8').read()
-        
-        text_splitter = MarkdownHeaderTextSplitter(
-            headers_to_split_on=[("#", "Header 1"), ("##", "Header 2")],
-            strip_headers=False
-        )
-        
-        chunks = []
-        for chunk in text_splitter.split_text(file_md):
-            # Извлекаем название таблицы из заголовка
-            table_name = None
-            content = chunk.page_content if hasattr(chunk, 'page_content') else str(chunk)
-            
-            # Ищем паттерн "# Таблица: table_name"
-            table_match = re.search(r'# Таблица:\s*(\w+)', content)
-            if table_match:
-                table_name = table_match.group(1)
-                logger.debug(f"RAG: Found table name: {table_name}")
-            
-            # Создаем документ с метаданными
-            if hasattr(chunk, 'page_content'):
-                chunks.append(Document(
-                    page_content=chunk.page_content,
-                    metadata={
-                        **getattr(chunk, 'metadata', {}).copy(),
-                        'table_name': table_name or 'unknown',
-                        'source': 'db_schema'
-                    }
-                ))
-            else:
-                chunks.append(Document(
-                    page_content=str(chunk),
-                    metadata={
-                        'table_name': table_name or 'unknown',
-                        'source': 'db_schema'
-                    }
-                ))
-        
-        logger.info(f"RAG: Creating embeddings with FRIDA model for {len(chunks)} chunks...")
+        all_chunks = []
+        for file_path, database in _schema_files():
+            logger.info(f"RAG: Loading schema from {file_path} (database={database})...")
+            chunks = _chunks_from_schema_file(file_path, database)
+            all_chunks.extend(chunks)
+            logger.info(f"RAG: Loaded {len(chunks)} chunks for {database}")
+        catalog_path = getattr(settings, "DATA_CATALOG_PATH", "app/agents/data_catalog.md")
+        try:
+            catalog_chunks = _chunks_from_data_catalog(catalog_path)
+            all_chunks.extend(catalog_chunks)
+            logger.info(f"RAG: Loaded {len(catalog_chunks)} chunks from data catalog")
+        except Exception as e:
+            logger.warning(f"RAG: Skipping data catalog: {e}")
+        if not all_chunks:
+            raise ValueError("No schema chunks loaded from any file")
+        cache_dir = getattr(settings, "HF_CACHE_DIR", "cache/huggingface")
+        os.makedirs(cache_dir, exist_ok=True)
+        logger.info(f"RAG: Using model cache dir: {os.path.abspath(cache_dir)}")
+        logger.info(f"RAG: Creating embeddings with FRIDA model for {len(all_chunks)} chunks...")
         embeddings = HuggingFaceEmbeddings(
-            model_name="ai-forever/FRIDA",  # Замена на FRIDA для лучшего понимания русского языка
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
+            model_name="ai-forever/FRIDA",
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+            cache_folder=cache_dir,
         )
-        
         logger.info("RAG: Building FAISS index...")
-        vector_db = FAISS.from_documents(chunks, embeddings)
+        vector_db = FAISS.from_documents(all_chunks, embeddings)
         logger.info("RAG: FAISS index created successfully")
         return vector_db
     except Exception as e:
         logger.error(f"RAG setup error: {str(e)}")
-        # Fallback на более простую модель
         logger.warning("RAG: Falling back to cointegrated/rubert-tiny2")
+        cache_dir = getattr(settings, "HF_CACHE_DIR", "cache/huggingface")
+        os.makedirs(cache_dir, exist_ok=True)
         return FAISS.from_texts(
-            ["Ошибка загрузки схемы БД"], 
-            HuggingFaceEmbeddings(model_name="cointegrated/rubert-tiny2")
+            ["Ошибка загрузки схемы БД"],
+            HuggingFaceEmbeddings(
+                model_name="cointegrated/rubert-tiny2",
+                cache_folder=cache_dir,
+            ),
         )
 
 # ВАЖНО: создаём векторную базу один раз при импорте модуля (при старте приложения)
@@ -103,19 +179,23 @@ def schema_retriever_cached(query_hash: str, query: str) -> str:
             lambda_mult=0.5  # Баланс релевантности и разнообразия
         )
         
-        # Логируем найденные таблицы для отладки
-        found_tables = [doc.metadata.get('table_name', 'unknown') for doc in docs if doc.metadata.get('table_name') != 'unknown']
-        if found_tables:
-            logger.debug(f"RAG: Found tables for query '{query[:50]}...': {', '.join(set(found_tables))}")
+        # Логируем найденные таблицы и БД для отладки
+        found = [
+            f"{doc.metadata.get('table_name', '?')}({doc.metadata.get('database', '?')})"
+            for doc in docs if doc.metadata.get("table_name") != "unknown"
+        ]
+        if found:
+            logger.debug(f"RAG: Found for query '{query[:50]}...': {', '.join(set(found))}")
         
-        return "\n\n".join([d.page_content for d in docs])
+        # В контекст LLM отдаём полное описание (с колонками и индексами) для написания SQL
+        return "\n\n".join([d.metadata.get("full_content", d.page_content) for d in docs])
     except Exception as e:
         logger.error(f"Schema retrieval error: {str(e)}")
         # Fallback на простой поиск при ошибке MMR
         try:
             logger.warning("RAG: Falling back to simple similarity_search")
             docs = vector_db.similarity_search(query, k=6)
-            return "\n\n".join([d.page_content for d in docs])
+            return "\n\n".join([d.metadata.get("full_content", d.page_content) for d in docs])
         except Exception as fallback_error:
             logger.error(f"Schema retrieval fallback error: {str(fallback_error)}")
             return "Ошибка при поиске в схеме БД"
@@ -129,35 +209,48 @@ def schema_retriever(query: str) -> str:
 def get_tools():
     """Инициализация инструментов LangChain"""
     python_repl = PythonREPL()
-    
-    return [
+    tools_list = [
         Tool(
             name="ClickHouse_Query",
             func=clickhouse_client.execute_safe_query,
             description=(
-                "EXECUTING SQL QUERIES TO A DATABASE. USE THIS TOOL TO GET DATA FROM THE DATABASE. "
-                "Input: SQL query. Output: the result is in the form of a table. "
-                "EXAMPLE: SELECT * FROM rees46.order_items WHERE shop_id = 123"
-            )
+                "EXECUTE SQL QUERIES AGAINST CLICKHOUSE. Use this tool when the schema search (Database_Schema) "
+                "returned tables with 'База данных: ClickHouse'. Input: SQL query (e.g. SELECT ... FROM rees46.table_name WHERE ...). "
+                "Output: table result."
+            ),
         ),
+    ]
+    if is_pg_configured():
+        tools_list.append(
+            Tool(
+                name="PostgreSQL_Query",
+                func=postgres_client.execute_safe_query,
+                description=(
+                    "EXECUTE SQL QUERIES AGAINST POSTGRESQL. Use this tool when the schema search (Database_Schema) "
+                    "returned tables with 'База данных: PostgreSQL'. Input: SQL query (e.g. SELECT ... FROM table_name WHERE ...). "
+                    "Output: table result."
+                ),
+            ),
+        )
+    tools_list.extend([
         Tool(
             name="Database_Schema",
             func=schema_retriever,
             description=(
-                "SEARCH FOR INFORMATION ABOUT THE DATABASE STRUCTURE. "
-                "Use it to specify the names of tables and columns before executing the query. "
-                "Entry: natural language in Russian."
-            )
+                "SEARCH FOR DATABASE STRUCTURE (TABLES AND COLUMNS). Returns descriptions of tables from BOTH ClickHouse and PostgreSQL. "
+                "Each table description includes 'База данных: ClickHouse' or 'База данных: PostgreSQL' — use that to choose "
+                "ClickHouse_Query vs PostgreSQL_Query. Input: natural language in Russian."
+            ),
         ),
         Tool(
             name="Python_REPL",
             func=python_repl.run,
             description=(
-                "Executing Python code for complex calculations." 
-                "Use it only when it is impossible to solve through SQL. "
-                "Input: valid Python code."
-            )
-        )
-    ]
+                "Executing Python code for complex calculations. "
+                "Use it only when it is impossible to solve through SQL. Input: valid Python code."
+            ),
+        ),
+    ])
+    return tools_list
 
 __all__ = ['get_tools', 'schema_retriever']

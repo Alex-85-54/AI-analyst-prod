@@ -8,6 +8,9 @@ wheels/
 logs.log
 .env
 
+# Кэш моделей HuggingFace (FRIDA) — не коммитить
+cache/
+
 # Virtual environments
 .venv
 .gitattributes
