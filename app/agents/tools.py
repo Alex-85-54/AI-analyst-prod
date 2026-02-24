@@ -112,6 +112,7 @@ def setup_rag_tool() -> FAISS:
     В метаданные и в текст каждого чанка включена база данных (ClickHouse/PostgreSQL),
     чтобы агент выбирал нужный инструмент запроса (ClickHouse_Query / PostgreSQL_Query).
     """
+    global rag_embedding_model
     try:
         all_chunks = []
         for file_path, database in _schema_files():
@@ -141,19 +142,25 @@ def setup_rag_tool() -> FAISS:
         logger.info("RAG: Building FAISS index...")
         vector_db = FAISS.from_documents(all_chunks, embeddings)
         logger.info("RAG: FAISS index created successfully")
+        rag_embedding_model = "ai-forever/FRIDA"
         return vector_db
     except Exception as e:
         logger.error(f"RAG setup error: {str(e)}")
         logger.warning("RAG: Falling back to cointegrated/rubert-tiny2")
         cache_dir = getattr(settings, "HF_CACHE_DIR", "cache/huggingface")
         os.makedirs(cache_dir, exist_ok=True)
+        rag_embedding_model = "cointegrated/rubert-tiny2"
         return FAISS.from_texts(
             ["Ошибка загрузки схемы БД"],
             HuggingFaceEmbeddings(
-                model_name="cointegrated/rubert-tiny2",
+                model_name=rag_embedding_model,
                 cache_folder=cache_dir,
             ),
         )
+
+
+# Модель, использованная при построении индекса (для health check)
+rag_embedding_model: str = "unknown"
 
 # ВАЖНО: создаём векторную базу один раз при импорте модуля (при старте приложения)
 vector_db = setup_rag_tool()

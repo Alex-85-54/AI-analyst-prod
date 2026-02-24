@@ -1,16 +1,28 @@
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from telegram.error import BadRequest
 from app.agents.analyst import ai_analyst
+from app.agents.tools import vector_db, rag_embedding_model
 from app.auth.security import is_user_authorized
 from app.utils.logging import logger
 from app.utils.metrics import track_performance
+from app.database.clickhouse import clickhouse_client
+from app.database.postgres import postgres_client, _is_pg_configured as is_pg_configured
 from config.settings import settings
+from langchain_openai import ChatOpenAI
 import asyncio
 import concurrent.futures
 from collections.abc import MutableMapping
 import re
 import time
+
+# Кнопка «Проверка систем» в клавиатуре
+HEALTH_CHECK_BUTTON = "Проверка систем"
+_reply_markup = ReplyKeyboardMarkup(
+    [[KeyboardButton(HEALTH_CHECK_BUTTON)]],
+    resize_keyboard=True,
+    one_time_keyboard=False,
+)
 
 
 def markdown_to_telegram_html(text: str) -> str:
@@ -82,6 +94,76 @@ _executor = concurrent.futures.ThreadPoolExecutor(
 )
 
 
+def _run_health_checks():
+    """Синхронные проверки (выполняются в executor). Возвращает список строк для отчёта."""
+    lines = []
+    # ClickHouse
+    try:
+        result = clickhouse_client.execute_safe_query("SELECT 1 AS ok")
+        if isinstance(result, str) and "Error" in result:
+            lines.append(f"❌ ClickHouse: {result}")
+        else:
+            lines.append("✅ ClickHouse: связь установлена")
+    except Exception as e:
+        lines.append(f"❌ ClickHouse: {str(e)}")
+    # PostgreSQL
+    if is_pg_configured():
+        try:
+            result = postgres_client.execute_safe_query("SELECT 1 AS ok")
+            if isinstance(result, str) and ("Error" in result or "не настроен" in result):
+                lines.append(f"❌ PostgreSQL: {result}")
+            else:
+                lines.append("✅ PostgreSQL: связь установлена")
+        except Exception as e:
+            lines.append(f"❌ PostgreSQL: {str(e)}")
+    else:
+        lines.append("⏭ PostgreSQL: не настроен (пропуск)")
+    # LLM (DeepSeek)
+    try:
+        llm = ChatOpenAI(
+            api_key=settings.API_KEY_DEEPSEEK,
+            base_url=settings.DEEPSEEK_BASE_URL,
+            model="deepseek-chat",
+            temperature=0,
+            timeout=15,
+            max_retries=0,
+        )
+        llm.invoke("Ответь одним словом: ОК")
+        lines.append("✅ LLM (DeepSeek): связь установлена")
+    except Exception as e:
+        lines.append(f"❌ LLM (DeepSeek): {str(e)[:100]}")
+    # Векторная БД (FAISS)
+    try:
+        n = vector_db.index.ntotal
+        lines.append(f"✅ Векторная БД (RAG): загружено {n} чанков схемы")
+    except Exception as e:
+        lines.append(f"❌ Векторная БД: {str(e)}")
+    # Модель векторизации
+    lines.append(f"📌 Модель векторизации (RAG): {rag_embedding_model}")
+    return lines
+
+
+async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопки «Проверка систем»: проверка ClickHouse, PostgreSQL, LLM, векторной БД."""
+    if not is_user_authorized(update.effective_user.id, update.effective_user.username):
+        await update.message.reply_text("⛔ Доступ запрещён.")
+        return
+    await update.message.reply_text("🔄 Выполняю проверку систем...")
+    loop = asyncio.get_event_loop()
+    try:
+        lines = await asyncio.wait_for(
+            loop.run_in_executor(_executor, _run_health_checks),
+            timeout=30.0,
+        )
+        text = "📋 <b>Проверка систем</b>\n\n" + "\n".join(lines)
+        await update.message.reply_text(text, parse_mode="HTML")
+    except asyncio.TimeoutError:
+        await update.message.reply_text("⏱ Проверка заняла слишком много времени.")
+    except Exception as e:
+        logger.exception("Health check error")
+        await update.message.reply_text(f"Ошибка проверки: {str(e)}")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
     try:
@@ -106,7 +188,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• «Статистика заказов для магазина 4987 за 2024 год»\n"
             "• «Топ товаров за последний месяц для магазина 4987»\n"
         )
-        await update.message.reply_text(welcome_authorized, parse_mode='HTML')
+        await update.message.reply_text(
+            welcome_authorized,
+            parse_mode="HTML",
+            reply_markup=_reply_markup,
+        )
 
     except Exception as e:
         logger.error(f"Error in start handler: {str(e)}", exc_info=True)
@@ -120,6 +206,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         question = update.message.text.strip()
 
         logger.info(f"Message from user_id: {user.id}, username: {user.username}, message: {question}")
+
+        # Обработка кнопки «Проверка систем»
+        if question.strip() == HEALTH_CHECK_BUTTON:
+            await health_check(update, context)
+            return
 
         # Обработка my_user_id - проверка авторизации НЕ требуется!
         if question.lower() == "my_user_id":
