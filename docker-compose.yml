@@ -15,6 +15,13 @@ x-environment: &environment
     - LOG_MAX_SIZE_MB=100
     - LOG_BACKUP_COUNT=5
     - LOG_ENABLE_CONSOLE=true
+    # Таймауты агента (в .env можно переопределить; после смены — перезапуск контейнера)
+    - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-180}
+    - AGENT_MAX_EXECUTION_TIME=${AGENT_MAX_EXECUTION_TIME:-600}
+    - AGENT_MAX_ITERATIONS=${AGENT_MAX_ITERATIONS:-10}
+    - BOT_HANDLER_TIMEOUT=${BOT_HANDLER_TIMEOUT:-660}
+    # Кэш моделей HuggingFace (FRIDA): сохраняется на хосте, при перезапуске не качаем заново
+    - HF_CACHE_DIR=/app/cache/huggingface
 services:
   ai-analyst:
     <<: *environment
@@ -23,6 +30,9 @@ services:
       target: prod
     image: your-registry/ai-analyst:${TAG:-latest}
     restart: unless-stopped
+    volumes:
+      # Модель FRIDA: первый запуск — скачивание в эту папку на хосте, дальше — загрузка с хоста
+      - ./cache/huggingface:/app/cache/huggingface
     networks:
       - rees46
     healthcheck:

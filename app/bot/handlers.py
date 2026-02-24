@@ -1,5 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from telegram.error import BadRequest
 from app.agents.analyst import ai_analyst
 from app.auth.security import is_user_authorized
 from app.utils.logging import logger
@@ -8,7 +9,30 @@ from config.settings import settings
 import asyncio
 import concurrent.futures
 from collections.abc import MutableMapping
+import re
 import time
+
+
+def markdown_to_telegram_html(text: str) -> str:
+    """
+    Конвертирует Markdown от агента в HTML для Telegram (parse_mode='HTML').
+    Telegram не поддерживает ** для жирного — только <b> или * в Markdown.
+    Используем HTML, чтобы ** и другие конструкции отображались корректно.
+    """
+    if not text or not text.strip():
+        return text
+    # 1. Экранируем символы, опасные в HTML
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # 2. Жирный: **текст** или __текст__ -> <b>текст</b>
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text, flags=re.DOTALL)
+    text = re.sub(r"__(.+?)__", r"<b>\1</b>", text, flags=re.DOTALL)
+    # 3. Курсив: *один символ* (не **) — осторожно с числами типа 100*2, делаем только *слово*
+    # Используем границу слова, чтобы не зацепить 100*2
+    text = re.sub(r"(?<!\*)\*([^*\n]+?)\*(?!\*)", r"<i>\1</i>", text)
+    text = re.sub(r"(?<!_)_([^_\n]+?)_(?!_)", r"<i>\1</i>", text)
+    # 4. Код: `код` -> <code>код</code>
+    text = re.sub(r"`([^`]+?)`", r"<code>\1</code>", text)
+    return text
 
 # Оптимизированный rate limiting с автоматической очисткой
 class TimedDict(MutableMapping):
@@ -164,14 +188,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         typing_task = asyncio.create_task(typing_indicator())
 
         try:
-            # Обработка запроса в thread pool (используем глобальный executor)
+            # Обработка запроса в thread pool с явным таймаутом (без него бот может ждать бесконечно)
             loop = asyncio.get_event_loop()
-            logger.info(f"Starting query processing for: {question}")
-            response = await loop.run_in_executor(
-                _executor,
-                ai_analyst.process_query,
-                question
-            )
+            timeout_sec = getattr(settings, "BOT_HANDLER_TIMEOUT", 660.0)
+            logger.info(f"Starting query processing for: {question} (timeout={timeout_sec}s)")
+            try:
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        _executor,
+                        ai_analyst.process_query,
+                        question,
+                    ),
+                    timeout=timeout_sec,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Query processing timed out after {timeout_sec}s")
+                await update.message.reply_text(
+                    "⏱ Запрос занял слишком много времени и был прерван. "
+                    "Попробуйте упростить вопрос или увеличьте BOT_HANDLER_TIMEOUT и AGENT_MAX_EXECUTION_TIME в .env (и перезапустите сервис)."
+                )
+                return
 
             logger.info(f"Query processed successfully, response length: {len(response)}")
 
@@ -179,8 +215,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(response) > 4000:
                 response = response[:4000] + "\n\n... (сообщение сокращено из-за ограничений Telegram)"
 
-            # Отправляем без parse_mode, если в ответе есть сложное форматирование
-            await update.message.reply_text(response)
+            # Конвертируем Markdown агента в HTML и отправляем с parse_mode для форматирования
+            response_html = markdown_to_telegram_html(response)
+            try:
+                await update.message.reply_text(response_html, parse_mode="HTML")
+            except BadRequest as e:
+                # Если HTML некорректен (например, неэкранированный символ), отправляем как plain text
+                logger.warning(f"Telegram HTML parse error, sending as plain text: {e}")
+                await update.message.reply_text(response)
 
         except Exception as e:
             logger.error(f"Message processing error: {str(e)}", exc_info=True)

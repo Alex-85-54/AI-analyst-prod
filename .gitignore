@@ -5,8 +5,13 @@ build/
 dist/
 wheels/
 *.egg-info
-# logs.log
-# .env
+logs.log
+.env
+
+# Кэш моделей HuggingFace (FRIDA) — не коммитить
+cache/
 
 # Virtual environments
 .venv
+.gitattributes
+allowed_users.json
