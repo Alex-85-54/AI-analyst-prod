@@ -1,7 +1,7 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from telegram.error import BadRequest
-from app.agents.analyst import ai_analyst
+from app.agents.analyst import ai_analyst, get_llm
 from app.agents.tools import vector_db, rag_embedding_model
 from app.auth.security import is_user_authorized
 from app.utils.logging import logger
@@ -9,7 +9,6 @@ from app.utils.metrics import track_performance
 from app.database.clickhouse import clickhouse_client
 from app.database.postgres import postgres_client, _is_pg_configured as is_pg_configured
 from config.settings import settings
-from langchain_openai import ChatOpenAI
 import asyncio
 import concurrent.futures
 from collections.abc import MutableMapping
@@ -118,20 +117,15 @@ def _run_health_checks():
             lines.append(f"❌ PostgreSQL: {str(e)}")
     else:
         lines.append("⏭ PostgreSQL: не настроен (пропуск)")
-    # LLM (DeepSeek)
+    # LLM (провайдер из настроек: DeepSeek или OpenAI)
+    provider = (settings.LLM_PROVIDER or "deepseek").strip().lower()
     try:
-        llm = ChatOpenAI(
-            api_key=settings.API_KEY_DEEPSEEK,
-            base_url=settings.DEEPSEEK_BASE_URL,
-            model="deepseek-chat",
-            temperature=0,
-            timeout=15,
-            max_retries=0,
-        )
+        llm = get_llm()
         llm.invoke("Ответь одним словом: ОК")
-        lines.append("✅ LLM (DeepSeek): связь установлена")
+        label = "OpenAI" if provider == "openai" else "DeepSeek"
+        lines.append(f"✅ LLM ({label}): связь установлена")
     except Exception as e:
-        lines.append(f"❌ LLM (DeepSeek): {str(e)[:100]}")
+        lines.append(f"❌ LLM ({provider}): {str(e)[:100]}")
     # Векторная БД (FAISS)
     try:
         n = vector_db.index.ntotal

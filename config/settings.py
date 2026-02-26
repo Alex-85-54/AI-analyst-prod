@@ -22,9 +22,20 @@ class Settings(BaseSettings):
     PG_PASSWORD: Optional[str] = Field(None, env="PG_PASSWORD")
     PG_DATABASE: Optional[str] = Field(None, env="PG_DATABASE")
     
-    # DeepSeek API
-    API_KEY_DEEPSEEK: str = Field(..., env="API_KEY_DEEPSEEK")
+    # LLM: выбор провайдера ("deepseek" | "openai")
+    LLM_PROVIDER: str = Field("deepseek", env="LLM_PROVIDER")
+    # DeepSeek API (используется при LLM_PROVIDER=deepseek)
+    API_KEY_DEEPSEEK: Optional[str] = Field(None, env="API_KEY_DEEPSEEK")
     DEEPSEEK_BASE_URL: str = Field("https://api.deepseek.com/v1", env="DEEPSEEK_BASE_URL")
+    # OpenAI API (используется при LLM_PROVIDER=openai)
+    API_KEY_OPENAI: Optional[str] = Field(None, env="API_KEY_OPENAI")
+    OPENAI_MODEL: str = Field("gpt-4o-mini", env="OPENAI_MODEL")
+    # Модели OpenAI, не поддерживающие параметр stop (через запятую). Для них используется обёртка без stop.
+    OPENAI_MODELS_NO_STOP: str = Field(
+        "gpt-5.2,o3,o4-mini",
+        env="OPENAI_MODELS_NO_STOP",
+        description="Comma-separated list of OpenAI model names that do not support the 'stop' parameter",
+    )
     
     # Security - путь к файлу с пользователями
     AUTH_CONFIG_PATH: str = Field("allowed_users.json", env="AUTH_CONFIG_PATH")
@@ -45,6 +56,10 @@ class Settings(BaseSettings):
     DATA_CATALOG_PATH: str = Field("app/agents/data_catalog.md", env="DATA_CATALOG_PATH")
     # Директория кэша моделей HuggingFace (FRIDA и др.). На хосте монтировать в эту же path в контейнере.
     HF_CACHE_DIR: str = Field("cache/huggingface", env="HF_CACHE_DIR")
+    # Режим приложения: dev — FAISS загружается/сохраняется на хосте; prod — FAISS каждый раз пересоздаётся, не сохраняется.
+    MODE: str = Field("prod", env="MODE", description="dev | prod")
+    # Директория на хосте для сохранения/загрузки индекса FAISS (только в режиме dev).
+    FAISS_INDEX_PATH: str = Field("cache/faiss_index", env="FAISS_INDEX_PATH")
 
     # Performance optimization settings
     QUERY_CACHE_TTL: int = Field(300, env="QUERY_CACHE_TTL")  # 5 минут

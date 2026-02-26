@@ -2,12 +2,98 @@ from langchain.agents import AgentExecutor, initialize_agent
 from langchain.agents.agent_types import AgentType
 from langchain.schema import SystemMessage
 from langchain_openai import ChatOpenAI
+from langchain_core.outputs import ChatResult
 from app.agents.tools import get_tools, schema_retriever
 from app.utils.logging import logger
 from app.utils.metrics import track_performance
 from config.settings import settings
 import re
 import pandas as pd
+from typing import Any, List, Optional
+from langchain_core.messages import BaseMessage
+from langchain_core.callbacks import CallbackManagerForLLMRun
+
+
+class ChatOpenAINoStop(ChatOpenAI):
+    """
+    ChatOpenAI, который не передаёт параметр stop в API.
+    Для моделей OpenAI, не поддерживающих stop (gpt-5.2, o3, o4-mini и т.п.).
+    """
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        # Убираем stop из kwargs, чтобы он нигде не попал в запрос к API
+        kwargs_no_stop = {k: v for k, v in kwargs.items() if k != "stop"}
+        return super()._generate(
+            messages,
+            stop=None,
+            run_manager=run_manager,
+            **kwargs_no_stop,
+        )
+
+
+def _openai_models_no_stop() -> set:
+    """Возвращает множество имён моделей OpenAI, для которых не передавать stop."""
+    raw = (settings.OPENAI_MODELS_NO_STOP or "").strip()
+    if not raw:
+        return set()
+    return {m.strip().lower() for m in raw.split(",") if m.strip()}
+
+
+def get_llm() -> ChatOpenAI:
+    """Создаёт экземпляр LLM в зависимости от настроек (DeepSeek или OpenAI)."""
+    provider = (settings.LLM_PROVIDER or "deepseek").strip().lower()
+    if provider == "openai":
+        api_key = settings.API_KEY_OPENAI
+        if not api_key:
+            raise ValueError(
+                "LLM_PROVIDER=openai задан, но API_KEY_OPENAI не указан в настройках (.env)"
+            )
+        model_name = (settings.OPENAI_MODEL or "").strip().lower()
+        no_stop_models = _openai_models_no_stop()
+        use_no_stop = model_name in no_stop_models
+        if use_no_stop:
+            logger.info(
+                f"Using LLM: OpenAI ({settings.OPENAI_MODEL}) with no-stop wrapper (model does not support 'stop')"
+            )
+            return ChatOpenAINoStop(
+                api_key=api_key,
+                model=settings.OPENAI_MODEL,
+                temperature=0.1,
+                timeout=settings.REQUEST_TIMEOUT,
+                max_retries=2,
+                streaming=False,
+            )
+        logger.info(f"Using LLM: OpenAI ({settings.OPENAI_MODEL})")
+        return ChatOpenAI(
+            api_key=api_key,
+            model=settings.OPENAI_MODEL,
+            temperature=0.1,
+            timeout=settings.REQUEST_TIMEOUT,
+            max_retries=2,
+            streaming=False,
+        )
+    # DeepSeek (по умолчанию)
+    api_key = settings.API_KEY_DEEPSEEK
+    if not api_key:
+        raise ValueError(
+            "LLM_PROVIDER=deepseek задан (или не задан), но API_KEY_DEEPSEEK не указан в настройках (.env)"
+        )
+    logger.info("Using LLM: DeepSeek (deepseek-chat)")
+    return ChatOpenAI(
+        api_key=api_key,
+        base_url=settings.DEEPSEEK_BASE_URL,
+        model="deepseek-chat",
+        temperature=0.1,
+        timeout=settings.REQUEST_TIMEOUT,
+        max_retries=2,
+        streaming=False,
+    )
 
 class AIAnalyst:
     # Компилируем паттерны один раз при загрузке класса
@@ -214,15 +300,7 @@ class AIAnalyst:
         
         return initialize_agent(
             tools=tools,
-            llm=ChatOpenAI(
-                api_key=settings.API_KEY_DEEPSEEK,
-                base_url=settings.DEEPSEEK_BASE_URL,
-                model="deepseek-chat",
-                temperature=0.1,
-                timeout=settings.REQUEST_TIMEOUT,
-                max_retries=2,  # Добавляем retry
-                streaming=False,  # Явно отключаем streaming для стабильности
-            ),
+            llm=get_llm(),
             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
             verbose=False,  # В продакшене отключаем подробный вывод
             memory=None,
