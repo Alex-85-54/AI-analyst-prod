@@ -1,4 +1,4 @@
-from langchain.tools import Tool
+from langchain_classic.tools import Tool
 from langchain_experimental.utilities import PythonREPL
 from app.database.clickhouse import clickhouse_client
 from app.database.postgres import postgres_client, _is_pg_configured as is_pg_configured
