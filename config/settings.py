@@ -24,12 +24,15 @@ class Settings(BaseSettings):
     
     # LLM: выбор провайдера ("deepseek" | "openai")
     LLM_PROVIDER: str = Field("deepseek", env="LLM_PROVIDER")
+    # Прокси для запросов к LLM (только LLM, не Telegram). SOCKS5. Опционально.
+    PROXY_HOST: Optional[str] = Field(None, env="PROXY_HOST")
+    PROXY_PORT: Optional[str] = Field(None, env="PROXY_PORT")
     # DeepSeek API (используется при LLM_PROVIDER=deepseek)
     API_KEY_DEEPSEEK: Optional[str] = Field(None, env="API_KEY_DEEPSEEK")
     DEEPSEEK_BASE_URL: str = Field("https://api.deepseek.com/v1", env="DEEPSEEK_BASE_URL")
     # OpenAI API (используется при LLM_PROVIDER=openai)
     API_KEY_OPENAI: Optional[str] = Field(None, env="API_KEY_OPENAI")
-    OPENAI_MODEL: str = Field("gpt-4o-mini", env="OPENAI_MODEL")
+    OPENAI_MODEL: str = Field("gpt-5.2", env="OPENAI_MODEL")
     # Модели OpenAI, не поддерживающие параметр stop (через запятую). Для них используется обёртка без stop.
     OPENAI_MODELS_NO_STOP: str = Field(
         "gpt-5.2,o3,o4-mini",

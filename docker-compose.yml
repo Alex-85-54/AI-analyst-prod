@@ -3,13 +3,30 @@ x-environment: &environment
     - ./.env
 
   environment:
+  # Telegram
     - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+    # ClickHouse
     - CH_HOST=${CH_HOST}
     - CH_PORT=${CH_PORT}
     - CH_USER=${CH_USER}
     - CH_PASSWORD=${CH_PASSWORD}
+    # PostgreSQL
+    - PG_HOST=${PG_HOST}
+    - PG_PORT=${PG_PORT}
+    - PG_USER=${PG_USER}
+    - PG_PASSWORD=${PG_PASSWORD}
+    - PG_DATABASE=${PG_DATABASE}
+    # DeepSeek
     - API_KEY_DEEPSEEK=${API_KEY_DEEPSEEK}
+    # OpenAI
+    - API_KEY_OPENAI=${API_KEY_OPENAI}
+    - OPENAI_MODEL=${OPENAI_MODEL}
+    # Proxy
+    - PROXY_HOST=${PROXY_HOST}
+    - PROXY_PORT=${PROXY_PORT}
+    # Security
     - AUTH_CONFIG_PATH=${AUTH_CONFIG_PATH}
+    # Logging
     - LOG_FILE_PATH=/app/logs/app.log
     - LOG_LEVEL=INFO
     - LOG_MAX_SIZE_MB=100
@@ -43,4 +60,4 @@ services:
 
 networks:
   rees46:
-    external: False
+    external: true

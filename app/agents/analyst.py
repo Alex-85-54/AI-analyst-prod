@@ -4,15 +4,17 @@ from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.outputs import ChatResult
+from langchain_core.language_models.chat_models import BaseChatModel
 from app.agents.tools import get_tools, schema_retriever
 from app.utils.logging import logger
 from app.utils.metrics import track_performance
 from config.settings import settings
 import re
 import pandas as pd
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 from langchain_core.messages import BaseMessage
 from langchain_core.callbacks import CallbackManagerForLLMRun
+import httpx
 
 
 class ChatOpenAINoStop(ChatOpenAI):
@@ -46,47 +48,84 @@ def _openai_models_no_stop() -> set:
     return {m.strip().lower() for m in raw.split(",") if m.strip()}
 
 
-def get_llm() -> ChatOpenAI:
-    """Создаёт экземпляр LLM в зависимости от настроек (DeepSeek или OpenAI)."""
-    provider = (settings.LLM_PROVIDER or "deepseek").strip().lower()
-    if provider == "openai":
-        api_key = settings.API_KEY_OPENAI
-        if not api_key:
-            raise ValueError(
-                "LLM_PROVIDER=openai задан, но API_KEY_OPENAI не указан в настройках (.env)"
+def _build_llm_http_client() -> Optional[httpx.Client]:
+    """Создаёт httpx.Client с SOCKS5-прокси для LLM, если заданы PROXY_HOST и PROXY_PORT."""
+    if not settings.PROXY_HOST or not settings.PROXY_PORT:
+        return None
+    proxy_url = f"socks5://{settings.PROXY_HOST}:{settings.PROXY_PORT}"
+    logger.info(f"LLM requests will use SOCKS5 proxy: {settings.PROXY_HOST}:{settings.PROXY_PORT}")
+    return httpx.Client(proxies=proxy_url)
+
+
+class FallbackChatLLM(BaseChatModel):
+    """
+    Обёртка: сначала вызывается primary LLM (OpenAI), при любой ошибке — fallback (DeepSeek).
+    Трафик к LLM идёт через прокси, если заданы PROXY_HOST/PROXY_PORT; Telegram не затрагивается.
+    """
+
+    primary: BaseChatModel
+    fallback: BaseChatModel
+
+    @property
+    def _llm_type(self) -> str:
+        return "openai_with_deepseek_fallback"
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        try:
+            return self.primary._generate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
             )
-        model_name = (settings.OPENAI_MODEL or "").strip().lower()
-        no_stop_models = _openai_models_no_stop()
-        use_no_stop = model_name in no_stop_models
-        if use_no_stop:
-            logger.info(
-                f"Using LLM: OpenAI ({settings.OPENAI_MODEL}) with no-stop wrapper (model does not support 'stop')"
+        except Exception as e:
+            logger.warning(
+                f"Primary LLM (OpenAI) failed: {e}. Falling back to DeepSeek."
             )
-            return ChatOpenAINoStop(
-                api_key=api_key,
-                model=settings.OPENAI_MODEL,
-                temperature=0.1,
-                timeout=settings.REQUEST_TIMEOUT,
-                max_retries=2,
-                streaming=False,
+            return self.fallback._generate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
             )
-        logger.info(f"Using LLM: OpenAI ({settings.OPENAI_MODEL})")
-        return ChatOpenAI(
-            api_key=api_key,
-            model=settings.OPENAI_MODEL,
-            temperature=0.1,
-            timeout=settings.REQUEST_TIMEOUT,
-            max_retries=2,
-            streaming=False,
+
+
+def _make_openai_llm(use_no_stop: bool) -> Union[ChatOpenAI, ChatOpenAINoStop]:
+    """Собирает клиент OpenAI с опциональным прокси."""
+    api_key = settings.API_KEY_OPENAI
+    if not api_key:
+        raise ValueError(
+            "LLM_PROVIDER=openai задан, но API_KEY_OPENAI не указан в настройках (.env)"
         )
-    # DeepSeek (по умолчанию)
+    http_client = _build_llm_http_client()
+    common = dict(
+        api_key=api_key,
+        model=settings.OPENAI_MODEL,
+        temperature=0.1,
+        timeout=settings.REQUEST_TIMEOUT,
+        max_retries=2,
+        streaming=False,
+    )
+    if http_client:
+        common["http_client"] = http_client
+    if use_no_stop:
+        logger.info(
+            f"Using LLM: OpenAI ({settings.OPENAI_MODEL}) with no-stop wrapper (model does not support 'stop')"
+        )
+        return ChatOpenAINoStop(**common)
+    logger.info(f"Using LLM: OpenAI ({settings.OPENAI_MODEL})")
+    return ChatOpenAI(**common)
+
+
+def _make_deepseek_llm() -> ChatOpenAI:
+    """Собирает клиент DeepSeek с опциональным прокси."""
     api_key = settings.API_KEY_DEEPSEEK
     if not api_key:
         raise ValueError(
-            "LLM_PROVIDER=deepseek задан (или не задан), но API_KEY_DEEPSEEK не указан в настройках (.env)"
+            "API_KEY_DEEPSEEK не указан в настройках (.env)"
         )
-    logger.info("Using LLM: DeepSeek (deepseek-chat)")
-    return ChatOpenAI(
+    http_client = _build_llm_http_client()
+    kwargs = dict(
         api_key=api_key,
         base_url=settings.DEEPSEEK_BASE_URL,
         model="deepseek-chat",
@@ -95,6 +134,29 @@ def get_llm() -> ChatOpenAI:
         max_retries=2,
         streaming=False,
     )
+    if http_client:
+        kwargs["http_client"] = http_client
+    return ChatOpenAI(**kwargs)
+
+
+def get_llm() -> Union[ChatOpenAI, FallbackChatLLM]:
+    """Создаёт экземпляр LLM в зависимости от настроек (DeepSeek или OpenAI).
+    При LLM_PROVIDER=openai и заданном API_KEY_DEEPSEEK включается fallback: сначала OpenAI, при ошибке — DeepSeek.
+    """
+    provider = (settings.LLM_PROVIDER or "deepseek").strip().lower()
+    if provider == "openai":
+        model_name = (settings.OPENAI_MODEL or "").strip().lower()
+        no_stop_models = _openai_models_no_stop()
+        use_no_stop = model_name in no_stop_models
+        openai_llm = _make_openai_llm(use_no_stop=use_no_stop)
+        if settings.API_KEY_DEEPSEEK:
+            logger.info("OpenAI with DeepSeek fallback enabled")
+            deepseek_llm = _make_deepseek_llm()
+            return FallbackChatLLM(primary=openai_llm, fallback=deepseek_llm)
+        return openai_llm
+    # DeepSeek (по умолчанию)
+    logger.info("Using LLM: DeepSeek (deepseek-chat)")
+    return _make_deepseek_llm()
 
 class AIAnalyst:
     # Компилируем паттерны один раз при загрузке класса
