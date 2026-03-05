@@ -1,13 +1,162 @@
-from langchain.agents import AgentExecutor, initialize_agent
-from langchain.agents.agent_types import AgentType
-from langchain.schema import SystemMessage
+from langchain_classic.agents import create_tool_calling_agent
+from langchain_classic.agents import AgentExecutor
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from langchain_core.outputs import ChatResult
+from langchain_core.language_models.chat_models import BaseChatModel
 from app.agents.tools import get_tools, schema_retriever
 from app.utils.logging import logger
 from app.utils.metrics import track_performance
 from config.settings import settings
 import re
 import pandas as pd
+from typing import Any, List, Optional, Union
+from langchain_core.messages import BaseMessage
+from langchain_core.callbacks import CallbackManagerForLLMRun
+import httpx
+
+
+class ChatOpenAINoStop(ChatOpenAI):
+    """
+    ChatOpenAI, который не передаёт параметр stop в API.
+    Для моделей OpenAI, не поддерживающих stop (gpt-5.2, o3, o4-mini и т.п.).
+    """
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        # Убираем stop из kwargs, чтобы он нигде не попал в запрос к API
+        kwargs_no_stop = {k: v for k, v in kwargs.items() if k != "stop"}
+        return super()._generate(
+            messages,
+            stop=None,
+            run_manager=run_manager,
+            **kwargs_no_stop,
+        )
+
+
+def _openai_models_no_stop() -> set:
+    """Возвращает множество имён моделей OpenAI, для которых не передавать stop."""
+    raw = (settings.OPENAI_MODELS_NO_STOP or "").strip()
+    if not raw:
+        return set()
+    return {m.strip().lower() for m in raw.split(",") if m.strip()}
+
+
+def _build_llm_http_client() -> Optional[httpx.Client]:
+    """Создаёт httpx.Client с SOCKS5-прокси для LLM, если заданы PROXY_HOST и PROXY_PORT."""
+    if not settings.PROXY_HOST or not settings.PROXY_PORT:
+        return None
+    proxy_url = f"socks5://{settings.PROXY_HOST}:{settings.PROXY_PORT}"
+    logger.info(f"LLM requests will use SOCKS5 proxy: {settings.PROXY_HOST}:{settings.PROXY_PORT}")
+    return httpx.Client(proxies=proxy_url)
+
+
+class FallbackChatLLM(BaseChatModel):
+    """
+    Обёртка: сначала вызывается primary LLM (OpenAI), при любой ошибке — fallback (DeepSeek).
+    Трафик к LLM идёт через прокси, если заданы PROXY_HOST/PROXY_PORT; Telegram не затрагивается.
+    """
+
+    primary: BaseChatModel
+    fallback: BaseChatModel
+
+    @property
+    def _llm_type(self) -> str:
+        return "openai_with_deepseek_fallback"
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        try:
+            return self.primary._generate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
+        except Exception as e:
+            logger.warning(
+                f"Primary LLM (OpenAI) failed: {e}. Falling back to DeepSeek."
+            )
+            return self.fallback._generate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
+
+
+def _make_openai_llm(use_no_stop: bool) -> Union[ChatOpenAI, ChatOpenAINoStop]:
+    """Собирает клиент OpenAI с опциональным прокси."""
+    api_key = settings.API_KEY_OPENAI
+    if not api_key:
+        raise ValueError(
+            "LLM_PROVIDER=openai задан, но API_KEY_OPENAI не указан в настройках (.env)"
+        )
+    http_client = _build_llm_http_client()
+    common = dict(
+        api_key=api_key,
+        model=settings.OPENAI_MODEL,
+        temperature=0.1,
+        timeout=settings.REQUEST_TIMEOUT,
+        max_retries=2,
+        streaming=False,
+    )
+    if http_client:
+        common["http_client"] = http_client
+    if use_no_stop:
+        logger.info(
+            f"Using LLM: OpenAI ({settings.OPENAI_MODEL}) with no-stop wrapper (model does not support 'stop')"
+        )
+        return ChatOpenAINoStop(**common)
+    logger.info(f"Using LLM: OpenAI ({settings.OPENAI_MODEL})")
+    return ChatOpenAI(**common)
+
+
+def _make_deepseek_llm() -> ChatOpenAI:
+    """Собирает клиент DeepSeek с опциональным прокси."""
+    api_key = settings.API_KEY_DEEPSEEK
+    if not api_key:
+        raise ValueError(
+            "API_KEY_DEEPSEEK не указан в настройках (.env)"
+        )
+    http_client = _build_llm_http_client()
+    kwargs = dict(
+        api_key=api_key,
+        base_url=settings.DEEPSEEK_BASE_URL,
+        model="deepseek-chat",
+        temperature=0.1,
+        timeout=settings.REQUEST_TIMEOUT,
+        max_retries=2,
+        streaming=False,
+    )
+    if http_client:
+        kwargs["http_client"] = http_client
+    return ChatOpenAI(**kwargs)
+
+
+def get_llm() -> Union[ChatOpenAI, FallbackChatLLM]:
+    """Создаёт экземпляр LLM в зависимости от настроек (DeepSeek или OpenAI).
+    При LLM_PROVIDER=openai и заданном API_KEY_DEEPSEEK включается fallback: сначала OpenAI, при ошибке — DeepSeek.
+    """
+    provider = (settings.LLM_PROVIDER or "deepseek").strip().lower()
+    if provider == "openai":
+        model_name = (settings.OPENAI_MODEL or "").strip().lower()
+        no_stop_models = _openai_models_no_stop()
+        use_no_stop = model_name in no_stop_models
+        openai_llm = _make_openai_llm(use_no_stop=use_no_stop)
+        if settings.API_KEY_DEEPSEEK:
+            logger.info("OpenAI with DeepSeek fallback enabled")
+            deepseek_llm = _make_deepseek_llm()
+            return FallbackChatLLM(primary=openai_llm, fallback=deepseek_llm)
+        return openai_llm
+    # DeepSeek (по умолчанию)
+    logger.info("Using LLM: DeepSeek (deepseek-chat)")
+    return _make_deepseek_llm()
 
 class AIAnalyst:
     # Компилируем паттерны один раз при загрузке класса
@@ -116,124 +265,116 @@ class AIAnalyst:
                     "Произошла ошибка при обработке запроса. "
                     "Пожалуйста, попробуйте еще раз или переформулируйте вопрос."
                 )
-    
+
     def _initialize_agent(self):
-        """Инициализация AI агента"""
+        """Инициализация AI агента (LangChain 1.2.x, tool-calling)"""
+
         system_prompt = """
-        You are a senior data analyst working with TWO databases: ClickHouse and PostgreSQL. You communicate with users in Russian but think in English for technical operations.
-        The user does NOT specify which database to use — you must determine it from the Database_Schema search results: each table description includes "База данных: ClickHouse" or "База данных: PostgreSQL". Use ClickHouse_Query for ClickHouse tables and PostgreSQL_Query for PostgreSQL tables.
-
-        IMPORTANT CONTEXT:
-        - You are working in a Telegram bot environment
-        - Telegram has strict message length limits (4096 characters)
-        - Your responses MUST NOT exceed 3500 characters to avoid parsing errors and message truncation
-        - If data is too large, summarize it or limit the number of rows shown
-        - Prioritize key insights over exhaustive data listing
-
-        TECHNICAL RULES (ENGLISH):
-        1. Use Database_Schema first to find relevant tables; each result shows which database the table is in (База данных: ClickHouse / PostgreSQL).
-        2. Use ClickHouse_Query for tables in ClickHouse (e.g. rees46.order_items). Use PostgreSQL_Query for tables in PostgreSQL (e.g. bulk_campaigns, campaign_recipients).
-        3. Only SELECT/SHOW/DESCRIBE/EXPLAIN queries allowed in both databases
-        4. No semicolons in SQL queries
-        5. Present results as Markdown tables with STRICT formatting rules
-        6. Create complex queries using: WITH alias_1 AS (query_1), alias_2 AS (query_2)  SELECT * FROM alias_1
-        7. LIMIT query results to reasonable size (max 15-20 rows for tables) to keep response under 3500 characters
-
-        CRITICAL: You MUST follow the ReAct format strictly:
-        - Use "Action:" before calling a tool
-        - Use "Action Input:" before providing tool input
-        - Use "Final Answer:" when providing the final response to user
-        - Always use proper tool names: ClickHouse_Query, PostgreSQL_Query, Database_Schema, Python_REPL
-        - Do NOT skip the format - this will cause parsing errors
-        - Keep "Final Answer:" responses concise and under 3500 characters total
-
-        TABLE FORMATTING RULES (CRITICAL - MUST FOLLOW):
-        - ALWAYS include ALL columns from the query result in the table - NEVER omit any columns
-        - Use proper Markdown table syntax with aligned columns (| column | column |)
-        - Format numbers: use space as thousands separator (e.g., 12 560.5 instead of 12560.5)
-        - For currency/revenue: add "руб." or currency symbol in column header (e.g., "Выручка, руб.")
-        - Keep column headers short but descriptive (max 25 characters per header)
-        - Use emoji in table title for better readability:
-          * 📊 for statistics/general data
-          * 💰 for revenue/money
-          * 📈 for trends/growth
-          * 📉 for declines
-          * 🛒 for orders/purchases
-          * 👥 for clients/users
-          * 📧 for emails/messages
-        - ALWAYS show column headers even if data is empty
-        - Round decimal numbers to 2 decimal places for readability (e.g., 12 560.50)
-        - Use consistent formatting: dates as DD.MM.YYYY, numbers with spaces as separators
-        - If user asks about "выручка" (revenue), "прибыль" (profit), "продажи" (sales) - ensure corresponding column is visible and properly formatted
-        - Column names should be in Russian and match user's request (Выручка, Количество, Клиенты, Заказы, etc.)
-
-        TABLE FORMAT EXAMPLE:
-        ### 📊 Топ писем по выручке за последние 2 месяца (магазин 5028)
-
-        | Код письма       | Тип рассылки        | Количество заказов | Выручка, руб. | Уникальные клиенты |
-        |------------------|---------------------|-------------------|---------------|-------------------|
-        | welcome_chain    | Триггерная цепочка  | 3                 | 12 560.50     | 3                 |
-        | cart_abandoned_1 | Триггерная цепочка  | 2                 | 8 900.00      | 2                 |
-        | new_year_promo   | Массовая рассылка   | 1                 | 5 400.00      | 1                 |
-
-        CRITICAL TABLE REQUIREMENTS:
-        - NEVER omit columns from the table - ALL columns from SQL result MUST be present
-        - If user asks about "выручка" (revenue), make sure "Выручка" or "Выручка, руб." column is visible and properly formatted
-        - Always include descriptive column headers that match what user requested
-        - Format all numeric values consistently with space separators
-
-        USER COMMUNICATION (RUSSIAN):
-        1. Analyze the user's question and determine:
-        - Is shop_id specified? If not, request it.
-        - Is the time period specified? If not, request it.
-        2. If the shop_id or period is not specified: politely request them from the user.
-        3. Only when all the parameters are clear, create and execute an SQL query
-        4. Present results in a well-formatted Markdown table with ALL columns from query result
-        5. Keep tables concise: limit to top 15-20 rows if data is large
-        6. Explain results clearly in Russian, but be BRIEF
-        7. Provide insights and summaries in Russian, keep recommendations to 3-5 key points
-        8. If query fails, explain the issue and next steps in Russian
-        9. TOTAL RESPONSE LENGTH MUST NOT EXCEED 3500 CHARACTERS - this is critical for Telegram bot
-
-        SECURITY:
-        - STRICTLY FORBIDDEN: INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, GRANT
-        - Validate all queries against schema first
-        - Never invent or hallucinate data
-        - ALL REQUESTS MUST CONTAIN FILTERS: SHOP_ID = specific store number and TIME PERIOD (date BETWEEN 'start date' AND 'end date'). DO NOT EXECUTE REQUESTS WITHOUT THESE FILTERS - this is protection against database overload
-
-        EXAMPLE THINKING PROCESS:
-        User: "покажи топ товаров"
-        → Use Database_Schema to find tables (orders/items). If result says "База данных: ClickHouse" and table rees46.order_items → use ClickHouse_Query. If "База данных: PostgreSQL" → use PostgreSQL_Query.
-        → Generate appropriate SQL (e.g. for ClickHouse: SELECT item_id, COUNT(*) FROM rees46.order_items GROUP BY item_id ORDER BY COUNT(*) DESC LIMIT 10)
-        → Execute via the correct tool (ClickHouse_Query or PostgreSQL_Query)
-        → Present table in Markdown with ALL columns, formatted numbers, emoji in title
-        → Explain in Russian: "Вот топ-10 товаров по количеству покупок..."
-        """
-        
+    You are a senior data analyst working with TWO databases: ClickHouse and PostgreSQL.
+    You communicate with users in Russian.
+    All internal reasoning must remain internal.
+    Never expose chain-of-thought.
+    ========================================================
+    DATABASE SELECTION RULE
+    ========================================================
+    The user does NOT specify which database to use.
+    You MUST determine the database from Database_Schema results.
+    Each schema result includes:
+    "База данных: ClickHouse"
+    or
+    "База данных: PostgreSQL"
+    Use:
+    - ClickHouse_Query → for ClickHouse tables
+    - PostgreSQL_Query → for PostgreSQL tables
+    ========================================================
+    MANDATORY EXECUTION RULES
+    ========================================================
+    1. ALWAYS call Database_Schema first.
+    2. Then generate SQL query.
+    3. SQL must:
+       - Use ONLY SELECT/SHOW/DESCRIBE/EXPLAIN
+       - NEVER include semicolons
+       - ALWAYS include filters:
+            WHERE shop_id = <specific number>
+            AND date BETWEEN <start> AND <end>
+    4. LIMIT results to max 15–20 rows.
+    5. NEVER invent data.
+    6. NEVER answer without executing a query.
+    ========================================================
+    TELEGRAM LIMIT
+    ========================================================
+    - Response MUST NOT exceed 3500 characters.
+    - If data is large:
+        - show only top N rows
+        - summarize insights briefly
+    - Prioritize key insights over raw data dump.
+    ========================================================
+    TABLE FORMAT RULES (STRICT)
+    ========================================================
+    - ALWAYS show ALL columns from SQL result
+    - Use Markdown tables
+    - Use space as thousands separator: 12 560.50
+    - Round decimals to 2 digits
+    - Dates format: DD.MM.YYYY
+    - If revenue/profit/sales → column MUST be visible
+    - Currency columns header example:
+        "Выручка, руб."
+    - Keep headers short (≤ 25 characters)
+    - Use emoji in title:
+    📊 statistics
+    💰 revenue
+    📈 growth
+    📉 decline
+    🛒 orders
+    👥 customers
+    📧 emails
+    ========================================================
+    USER INTERACTION LOGIC
+    ========================================================
+    If shop_id is missing → ask user for it.
+    If time period missing → ask user for it.
+    Do NOT execute query until both are present.
+    When answering:
+    1. Show table
+    2. Give brief explanation in Russian
+    3. Provide 3–5 short recommendations
+    4. Keep total response < 3500 characters
+    ========================================================
+    SECURITY
+    ========================================================
+    FORBIDDEN:
+    INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, GRANT
+    ALWAYS validate against schema before query execution.
+    """
         tools = get_tools()
-        
-        return initialize_agent(
-            tools=tools,
-            llm=ChatOpenAI(
-                api_key=settings.API_KEY_DEEPSEEK,
-                base_url=settings.DEEPSEEK_BASE_URL,
-                model="deepseek-chat",
-                temperature=0.1,
-                timeout=settings.REQUEST_TIMEOUT,
-                max_retries=2,  # Добавляем retry
-                streaming=False,  # Явно отключаем streaming для стабильности
-            ),
-            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-            verbose=False,  # В продакшене отключаем подробный вывод
-            memory=None,
-            handle_parsing_errors=True,  # Базовый обработчик включен
-            max_iterations=settings.AGENT_MAX_ITERATIONS,  # Используем настройку из config
-            early_stopping_method="generate",
-            max_execution_time=settings.AGENT_MAX_EXECUTION_TIME,  # Ограничение времени выполнения
-            agent_kwargs={
-                "system_message": SystemMessage(content=system_prompt)
-            }
+        llm = get_llm()
+        # Создаём ChatPromptTemplate
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                ("human", "{input}"),
+                ("placeholder", "{agent_scratchpad}"),
+            ]
         )
+
+        # Создание tool-calling агента
+        agent = create_tool_calling_agent(
+            llm=llm,
+            tools=tools,
+            prompt=prompt
+        )
+
+        # Executor
+        executor = AgentExecutor(
+            agent=agent,
+            tools=tools,
+            verbose=False,
+            max_iterations=settings.AGENT_MAX_ITERATIONS,
+            max_execution_time=settings.AGENT_MAX_EXECUTION_TIME,
+            handle_parsing_errors=True,
+        )
+
+        return executor
     
     def analyze_query_parameters(self, query: str) -> dict:
         """Анализирует запрос на наличие обязательных параметров"""

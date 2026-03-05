@@ -1,4 +1,4 @@
-from langchain.tools import Tool
+from langchain_classic.tools import Tool
 from langchain_experimental.utilities import PythonREPL
 from app.database.clickhouse import clickhouse_client
 from app.database.postgres import postgres_client, _is_pg_configured as is_pg_configured
@@ -107,42 +107,81 @@ def _chunks_from_data_catalog(file_path: str):
     return docs
 
 
+def _build_embeddings(cache_dir: str):
+    """Создаёт экземпляр эмбеддингов (FRIDA)."""
+    return HuggingFaceEmbeddings(
+        model_name="ai-forever/FRIDA",
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+        cache_folder=cache_dir,
+    )
+
+
+def _load_all_chunks():
+    """Загружает все чанки из файлов схем и дата-каталога. Возвращает (all_chunks, cache_dir)."""
+    all_chunks = []
+    for file_path, database in _schema_files():
+        logger.info(f"RAG: Loading schema from {file_path} (database={database})...")
+        chunks = _chunks_from_schema_file(file_path, database)
+        all_chunks.extend(chunks)
+        logger.info(f"RAG: Loaded {len(chunks)} chunks for {database}")
+    catalog_path = getattr(settings, "DATA_CATALOG_PATH", "app/agents/data_catalog.md")
+    try:
+        catalog_chunks = _chunks_from_data_catalog(catalog_path)
+        all_chunks.extend(catalog_chunks)
+        logger.info(f"RAG: Loaded {len(catalog_chunks)} chunks from data catalog")
+    except Exception as e:
+        logger.warning(f"RAG: Skipping data catalog: {e}")
+    if not all_chunks:
+        raise ValueError("No schema chunks loaded from any file")
+    cache_dir = getattr(settings, "HF_CACHE_DIR", "cache/huggingface")
+    os.makedirs(cache_dir, exist_ok=True)
+    return all_chunks, cache_dir
+
+
 def setup_rag_tool() -> FAISS:
     """Инициализация RAG для схем БД ClickHouse и PostgreSQL (одна векторная база).
-    В метаданные и в текст каждого чанка включена база данных (ClickHouse/PostgreSQL),
-    чтобы агент выбирал нужный инструмент запроса (ClickHouse_Query / PostgreSQL_Query).
+    - dev: загружает FAISS с хоста (FAISS_INDEX_PATH), если нет — строит и сохраняет.
+    - prod: каждый раз пересоздаёт FAISS из схемы, не сохраняет на диск.
     """
     global rag_embedding_model
+    mode = (getattr(settings, "MODE", "prod") or "prod").strip().lower()
+    cache_dir = getattr(settings, "HF_CACHE_DIR", "cache/huggingface")
+    os.makedirs(cache_dir, exist_ok=True)
+    logger.info(f"RAG: mode={mode}")
+
     try:
-        all_chunks = []
-        for file_path, database in _schema_files():
-            logger.info(f"RAG: Loading schema from {file_path} (database={database})...")
-            chunks = _chunks_from_schema_file(file_path, database)
-            all_chunks.extend(chunks)
-            logger.info(f"RAG: Loaded {len(chunks)} chunks for {database}")
-        catalog_path = getattr(settings, "DATA_CATALOG_PATH", "app/agents/data_catalog.md")
-        try:
-            catalog_chunks = _chunks_from_data_catalog(catalog_path)
-            all_chunks.extend(catalog_chunks)
-            logger.info(f"RAG: Loaded {len(catalog_chunks)} chunks from data catalog")
-        except Exception as e:
-            logger.warning(f"RAG: Skipping data catalog: {e}")
-        if not all_chunks:
-            raise ValueError("No schema chunks loaded from any file")
-        cache_dir = getattr(settings, "HF_CACHE_DIR", "cache/huggingface")
-        os.makedirs(cache_dir, exist_ok=True)
+        embeddings = _build_embeddings(cache_dir)
+        rag_embedding_model = "ai-forever/FRIDA"
+
+        if mode == "dev":
+            index_path = (getattr(settings, "FAISS_INDEX_PATH", "cache/faiss_index") or "cache/faiss_index").strip()
+            index_file = os.path.join(index_path, "index.faiss")
+            if os.path.isfile(index_file):
+                try:
+                    logger.info(f"RAG: Loading FAISS index from {index_path}...")
+                    vector_db = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+                    logger.info("RAG: FAISS index loaded from disk")
+                    return vector_db
+                except Exception as e:
+                    logger.warning(f"RAG: Failed to load FAISS from {index_path}: {e}, rebuilding...")
+
+            all_chunks, _ = _load_all_chunks()
+            logger.info(f"RAG: Creating embeddings for {len(all_chunks)} chunks...")
+            logger.info("RAG: Building FAISS index...")
+            vector_db = FAISS.from_documents(all_chunks, embeddings)
+            os.makedirs(index_path, exist_ok=True)
+            vector_db.save_local(index_path)
+            logger.info(f"RAG: FAISS index built and saved to {index_path}")
+            return vector_db
+
+        # prod: всегда пересоздаём, не сохраняем
+        all_chunks, _ = _load_all_chunks()
         logger.info(f"RAG: Using model cache dir: {os.path.abspath(cache_dir)}")
-        logger.info(f"RAG: Creating embeddings with FRIDA model for {len(all_chunks)} chunks...")
-        embeddings = HuggingFaceEmbeddings(
-            model_name="ai-forever/FRIDA",
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
-            cache_folder=cache_dir,
-        )
+        logger.info(f"RAG: Creating embeddings for {len(all_chunks)} chunks...")
         logger.info("RAG: Building FAISS index...")
         vector_db = FAISS.from_documents(all_chunks, embeddings)
         logger.info("RAG: FAISS index created successfully")
-        rag_embedding_model = "ai-forever/FRIDA"
         return vector_db
     except Exception as e:
         logger.error(f"RAG setup error: {str(e)}")

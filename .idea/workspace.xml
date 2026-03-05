@@ -5,10 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="56552920-b1c5-45be-8e85-71d4f9488cc7" name="Changes" comment="fix(common): dockerfile and build">
-      <change beforePath="$PROJECT_DIR$/.idea/AI-analyst-prod.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/AI-analyst-prod.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.dockerignore" beforeDir="false" afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/agents/tools.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/agents/tools.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/bot/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot/handlers.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -124,7 +122,7 @@
     "ai.playground.ignore.import.keys.banner.in.settings": "true",
     "full.screen.before.presentation.mode": "false",
     "git-widget-placeholder": "develop",
-    "last_opened_file_path": "/media/alex/afd38d35-3963-4272-9b6c-973ab1698dd5/REES46/Analyze/reserch.ipynb",
+    "last_opened_file_path": "/media/alex/afd38d35-3963-4272-9b6c-973ab1698dd5/Боты/Bot_Option_cursor",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -171,7 +169,11 @@
       <workItem from="1771918758367" duration="3275000" />
       <workItem from="1771922515209" duration="3000" />
       <workItem from="1771924021910" duration="4991000" />
-      <workItem from="1771932254266" duration="2137000" />
+      <workItem from="1771932254266" duration="3955000" />
+      <workItem from="1772016545332" duration="39000" />
+      <workItem from="1772091398331" duration="14714000" />
+      <workItem from="1772182512131" duration="11107000" />
+      <workItem from="1772272682490" duration="13000" />
     </task>
     <task id="LOCAL-00001" summary="chore(common): git">
       <option name="closed" value="true" />

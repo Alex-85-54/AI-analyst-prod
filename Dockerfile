@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm AS base
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm AS base
 
 ENV PYTHONUNBUFFERED=1 \
     UV_CACHE_DIR=/root/.cache/uv \
