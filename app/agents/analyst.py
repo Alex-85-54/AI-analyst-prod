@@ -70,6 +70,10 @@ class FallbackChatLLM(BaseChatModel):
     def _llm_type(self) -> str:
         return "openai_with_deepseek_fallback"
 
+    def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
+        """Привязка инструментов: делегируем primary, но возвращаем runnable, вызывающий self (с fallback)."""
+        return self.bind(tools=tools, **kwargs)
+
     def _generate(
         self,
         messages: List[BaseMessage],
