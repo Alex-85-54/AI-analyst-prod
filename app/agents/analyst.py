@@ -5,6 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.outputs import ChatResult
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from app.agents.tools import get_tools, schema_retriever
 from app.utils.logging import logger
 from app.utils.metrics import track_performance
@@ -71,8 +72,9 @@ class FallbackChatLLM(BaseChatModel):
         return "openai_with_deepseek_fallback"
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
-        """Привязка инструментов: делегируем primary, но возвращаем runnable, вызывающий self (с fallback)."""
-        return self.bind(tools=tools, **kwargs)
+        """Привязка инструментов: конвертируем в сериализуемый формат OpenAI, затем bind к self (с fallback)."""
+        openai_tools = [convert_to_openai_tool(t) for t in tools]
+        return self.bind(tools=openai_tools, **kwargs)
 
     def _generate(
         self,
