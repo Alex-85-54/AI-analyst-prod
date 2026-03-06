@@ -54,7 +54,7 @@ def _build_llm_http_client() -> Optional[httpx.Client]:
         return None
     proxy_url = f"socks5://{settings.PROXY_HOST}:{settings.PROXY_PORT}"
     logger.info(f"LLM requests will use SOCKS5 proxy: {settings.PROXY_HOST}:{settings.PROXY_PORT}")
-    return httpx.Client(proxies=proxy_url)
+    return httpx.Client(proxy=proxy_url)
 
 
 class FallbackChatLLM(BaseChatModel):
