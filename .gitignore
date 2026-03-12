@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-
+.env
+allowed_users.json
+.dockerignore
+cache/
+logs/
+docker-compose.yml
+requirements/
+requirements.txt
+
+# Virtual environments
+.venv
