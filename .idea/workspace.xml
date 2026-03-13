@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="56552920-b1c5-45be-8e85-71d4f9488cc7" name="Changes" comment="fix(common): dockerfile and build">
+      <change beforePath="$PROJECT_DIR$/.dockerignore" beforeDir="false" afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ComposerSettings">
+    <execution />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="master" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;Nelfimov&quot;
+  }
+}</component>
+  <component name="GitRewordedCommitMessages">
+    <option name="commitMessagesMapping">
+      <RewordedCommitMessageMapping>
+        <option name="originalMessage" value="[DEV-3321] sync: main to master" />
+        <option name="rewordedMessage" value="[DEV-3321] sync: main to master" />
+      </RewordedCommitMessageMapping>
+    </option>
+    <option name="currentCommit" value="1" />
+    <option name="onto" value="13963c12dc53b9eddb18d8e5c357f045b81f139f" />
+  </component>
+  <component name="GitToolBoxStore">
+    <option name="recentBranches">
+      <RecentBranches>
+        <option name="branchesForRepo">
+          <list>
+            <RecentBranchesForRepo>
+              <option name="branches">
+                <list>
+                  <RecentBranch>
+                    <option name="branchName" value="develop" />
+                    <option name="lastUsedInstant" value="1771924103" />
+                  </RecentBranch>
+                  <RecentBranch>
+                    <option name="branchName" value="master" />
+                    <option name="lastUsedInstant" value="1771924062" />
+                  </RecentBranch>
+                </list>
+              </option>
+              <option name="repositoryRootUrl" value="file://$PROJECT_DIR$" />
+            </RecentBranchesForRepo>
+          </list>
+        </option>
+      </RecentBranches>
+    </option>
+  </component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/rees46/ai-analyst.git&quot;,
+    &quot;accountId&quot;: &quot;16a7552f-6a00-4aec-8e07-f535aff27210&quot;
+  }
+}</component>
+  <component name="KubernetesApiPersistence">{}</component>
+  <component name="KubernetesApiProvider">{
+  &quot;configuredContexts&quot;: [
+    {
+      &quot;name&quot;: &quot;rees46-stage&quot;,
+      &quot;kubeConfigUrl&quot;: &quot;file:///Users/nelfimov/.kube/config&quot;
+    },
+    {
+      &quot;name&quot;: &quot;rees46-technodom&quot;,
+      &quot;kubeConfigUrl&quot;: &quot;file:///Users/nelfimov/.kube/config&quot;
+    },
+    {
+      &quot;name&quot;: &quot;rees46-kz&quot;,
+      &quot;kubeConfigUrl&quot;: &quot;file:///Users/nelfimov/.kube/config&quot;,
+      &quot;currentNamespace&quot;: &quot;Kubernetes.All.Namespaces.Label&quot;
+    }
+  ],
+  &quot;isMigrated&quot;: true
+}</component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="VkFvmDxG" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 7
+}</component>
+  <component name="ProjectId" id="35mhO4BIQI0whYcFLELL2IIVrIN" />
+  <component name="ProjectLevelVcsManager">
+    <OptionsSetting value="false" id="Update" />
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+    <option name="showScratchesAndConsoles" value="false" />
+    <option name="showVisibilityIcons" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "ai.playground.ignore.import.keys.banner.in.settings": "true",
+    "full.screen.before.presentation.mode": "false",
+    "git-widget-placeholder": "develop",
+    "last_opened_file_path": "/media/alex/afd38d35-3963-4272-9b6c-973ab1698dd5/Боты/Bot_Option_cursor",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "com.intellij.python.templateLanguages.PyTemplateLanguageModulesConfigurable",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/Mi_variant" />
+    </key>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-9b0f141eb926-JavaScript-PY-253.29346.308" />
+        <option value="bundled-python-sdk-ca5e2b39c7df-6e1f45a539f7-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.29346.308" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="56552920-b1c5-45be-8e85-71d4f9488cc7" name="Changes" comment="" />
+      <created>1763721119991</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1763721119991</updated>
+      <workItem from="1769689047730" duration="36000" />
+      <workItem from="1770821704006" duration="1199000" />
+      <workItem from="1770878425290" duration="2741000" />
+      <workItem from="1770890419171" duration="17758000" />
+      <workItem from="1770969979528" duration="280000" />
+      <workItem from="1770982253824" duration="4972000" />
+      <workItem from="1771230409522" duration="12831000" />
+      <workItem from="1771247675506" duration="5391000" />
+      <workItem from="1771318280390" duration="7452000" />
+      <workItem from="1771335070118" duration="699000" />
+      <workItem from="1771395450530" duration="56000" />
+      <workItem from="1771400817345" duration="2210000" />
+      <workItem from="1771405690687" duration="3227000" />
+      <workItem from="1771573398543" duration="26000" />
+      <workItem from="1771918758367" duration="3275000" />
+      <workItem from="1771922515209" duration="3000" />
+      <workItem from="1771924021910" duration="4991000" />
+      <workItem from="1771932254266" duration="3955000" />
+      <workItem from="1772016545332" duration="39000" />
+      <workItem from="1772091398331" duration="14714000" />
+      <workItem from="1772182512131" duration="11107000" />
+      <workItem from="1772272682490" duration="13000" />
+    </task>
+    <task id="LOCAL-00001" summary="chore(common): git">
+      <option name="closed" value="true" />
+      <created>1763721242366</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1763721242366</updated>
+    </task>
+    <task id="LOCAL-00002" summary="fix(common): dockerfile and build">
+      <option name="closed" value="true" />
+      <created>1763722683154</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1763722683154</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="chore(common): git" />
+    <MESSAGE value="fix(common): dockerfile and build" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix(common): dockerfile and build" />
+  </component>
+</project>

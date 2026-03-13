@@ -1,0 +1,32 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - .github/**
+  pull_request:
+    types:
+      - closed
+    branches:
+      - master
+    paths-ignore:
+      - .github/**
+  workflow_dispatch:
+
+jobs:
+  docker:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.merged == true &&
+        !startsWith(github.head_ref, 'release/')
+      )
+    name: Build Docker image and push
+    uses: rees46/workflow/.github/workflows/docker-publish.yaml@master
+    permissions: write-all
+    with:
+      packageName: ai-analyst
