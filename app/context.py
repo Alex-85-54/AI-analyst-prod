@@ -1,4 +1,5 @@
 """Контекст запроса: разрешённые shop_id для проверки при выполнении SQL; последний DataFrame для экспорта."""
+import threading
 from contextvars import ContextVar
 from typing import List, Optional, TYPE_CHECKING
 
@@ -15,6 +16,9 @@ last_query_df_ctx: ContextVar[Optional["pd.DataFrame"]] = ContextVar(
     "last_query_df", default=None
 )
 
+# Резервное хранилище по потоку (агент может выполняться в worker thread, где ContextVar ведёт себя иначе).
+_last_query_df_thread_local = threading.local()
+
 
 def set_allowed_shop_ids(shop_ids: Optional[List[int]]) -> None:
     """Установить список разрешённых shop_id для текущего контекста выполнения."""
@@ -29,8 +33,12 @@ def get_allowed_shop_ids() -> Optional[List[int]]:
 def set_last_query_df(df: Optional["pd.DataFrame"]) -> None:
     """Сохранить последний успешный DataFrame из запроса к БД (для PNG и Excel)."""
     last_query_df_ctx.set(df)
+    _last_query_df_thread_local.value = df
 
 
 def get_last_query_df() -> Optional["pd.DataFrame"]:
-    """Получить последний успешный DataFrame (в контексте текущего потока)."""
-    return last_query_df_ctx.get()
+    """Получить последний успешный DataFrame (контекст текущего потока или thread-local)."""
+    v = last_query_df_ctx.get()
+    if v is not None:
+        return v
+    return getattr(_last_query_df_thread_local, "value", None)

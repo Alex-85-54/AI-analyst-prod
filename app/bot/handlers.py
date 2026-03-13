@@ -399,7 +399,9 @@ async def export_excel_callback(update: Update, context: ContextTypes.DEFAULT_TY
     """Обработчик «Выгрузить таблицу в Excel»: отправляет последний DataFrame как .xlsx."""
     query = update.callback_query
     user_id = update.effective_user.id if update.effective_user else None
-    last_df = context.user_data.get("last_query_df") or (_last_query_df_by_user.get(user_id) if user_id else None)
+    last_df = context.user_data.get("last_query_df")
+    if last_df is None and user_id is not None:
+        last_df = _last_query_df_by_user.get(user_id)
     if last_df is None or (hasattr(last_df, "empty") and last_df.empty):
         await query.answer(text="Нет последней таблицы для выгрузки.", show_alert=True)
         return
@@ -641,6 +643,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["last_query_df"] = last_df
             if last_df is not None:
                 _last_query_df_by_user[user.id] = last_df
+                logger.info(f"Last query DataFrame stored for user_id={user.id} (rows={len(last_df)})")
+            else:
+                logger.debug("No DataFrame from agent for this query (last_df is None)")
 
             # Проверяем, не слишком ли длинный ответ для Telegram
             if len(response) > 4000:
