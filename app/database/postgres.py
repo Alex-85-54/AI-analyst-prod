@@ -1,7 +1,7 @@
 """Клиент PostgreSQL для выполнения read-only SQL-запросов."""
 import re
 import time
-from typing import Union, Optional
+from typing import Union, Optional, List, Set
 from hashlib import sha256
 
 import pandas as pd
@@ -10,6 +10,7 @@ from psycopg2.extras import RealDictCursor
 
 from app.utils.logging import logger
 from app.utils.metrics import track_query_performance
+from app.context import get_allowed_shop_ids
 from config.settings import settings
 
 
@@ -112,6 +113,32 @@ class PostgresClient:
             logger.error(error_msg)
             return error_msg
 
+    def _extract_shop_ids_from_query(self, query: str) -> Set[int]:
+        """Извлекает все числовые значения shop_id из запроса."""
+        ids: Set[int] = set()
+        for m in re.finditer(r"shop_id\s*=\s*(\d+)", query, re.IGNORECASE):
+            ids.add(int(m.group(1)))
+        for m in re.finditer(r"shop_id\s+IN\s*\(\s*([^)]+)\s*\)", query, re.IGNORECASE):
+            for part in re.split(r"[\s,]", m.group(1)):
+                part = part.strip()
+                if part.isdigit():
+                    ids.add(int(part))
+        return ids
+
+    def _validate_shop_ids(self, query: str, allowed: List[int]) -> Optional[str]:
+        """Проверяет, что все shop_id в запросе входят в разрешённый список."""
+        if not allowed:
+            return None
+        allowed_set = set(int(x) for x in allowed)
+        found = self._extract_shop_ids_from_query(query)
+        if not found:
+            return "Error: Запрос должен содержать фильтр по shop_id (WHERE shop_id = ... или shop_id IN (...))."
+        forbidden = found - allowed_set
+        if forbidden:
+            logger.warning(f"PostgreSQL query uses disallowed shop_id(s): {forbidden}")
+            return "Error: Доступ запрещён к указанным магазинам. Используйте только разрешённые shop_id."
+        return None
+
     def _validate_query(self, query: str) -> Optional[str]:
         """Валидация SQL-запроса (только чтение)."""
         forbidden = [
@@ -125,6 +152,11 @@ class PostgresClient:
         if not re.match(r"^\s*(select|with|show|explain)", query, re.IGNORECASE):
             return "Error: Read-only requests are allowed"
 
+        allowed = get_allowed_shop_ids()
+        if allowed is not None:
+            shop_err = self._validate_shop_ids(query, allowed)
+            if shop_err:
+                return shop_err
         return None
 
 

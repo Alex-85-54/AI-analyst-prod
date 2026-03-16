@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     AGENT_MAX_EXECUTION_TIME: float = Field(600.0, env="AGENT_MAX_EXECUTION_TIME")
     # Обработчик бота: макс. время ожидания ответа агента (должен быть >= AGENT_MAX_EXECUTION_TIME)
     BOT_HANDLER_TIMEOUT: float = Field(660.0, env="BOT_HANDLER_TIMEOUT")
+
+    # Размер фигуры matplotlib для PNG-таблицы (ширина и высота в дюймах)
+    CHART_TABLE_FIG_WIDTH: float = Field(12.0, env="CHART_TABLE_FIG_WIDTH")
+    CHART_TABLE_FIG_HEIGHT: float = Field(8.0, env="CHART_TABLE_FIG_HEIGHT")
     
     class Config:
         env_file = ".env"

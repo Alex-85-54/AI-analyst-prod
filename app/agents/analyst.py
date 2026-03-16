@@ -7,6 +7,7 @@ from langchain_core.outputs import ChatResult
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from app.agents.tools import get_tools, schema_retriever
+from app.context import set_allowed_shop_ids
 from app.utils.logging import logger
 from app.utils.metrics import track_performance
 from config.settings import settings
@@ -337,9 +338,8 @@ class AIAnalyst:
     ========================================================
     USER INTERACTION LOGIC
     ========================================================
-    If shop_id is missing → ask user for it.
-    If time period missing → ask user for it.
-    Do NOT execute query until both are present.
+    shop_id is set in session (use ONLY the allowed list from context; do not ask the user).
+    Time period (date range) is set in session — use the provided period_start and period_end in ALL queries.
     When answering:
     1. Show table
     2. Give brief explanation in Russian
@@ -383,41 +383,11 @@ class AIAnalyst:
         return executor
     
     def analyze_query_parameters(self, query: str) -> dict:
-        """Анализирует запрос на наличие обязательных параметров"""
-        analysis = {
-            'has_shop_id': False,
-            'has_time_period': False,
+        """Анализирует запрос. shop_id и период задаются в настройках сессии, в тексте не обязательны."""
+        return {
             'missing_parameters': [],
-            'recommendation': ''
+            'recommendation': '',
         }
-        
-        # Используем скомпилированные паттерны для поиска shop_id
-        for pattern in self._shop_id_patterns:
-            if pattern.search(query):
-                analysis['has_shop_id'] = True
-                break
-        
-        # Используем скомпилированные паттерны для временных периодов
-        for pattern in self._time_patterns:
-            if pattern.search(query):
-                analysis['has_time_period'] = True
-                break
-        
-        # Формируем рекомендации
-        if not analysis['has_shop_id']:
-            analysis['missing_parameters'].append('shop_id')
-        if not analysis['has_time_period']:
-            analysis['missing_parameters'].append('временной период')
-        
-        if analysis['missing_parameters']:
-            analysis['recommendation'] = (
-                "Для выполнения запроса мне нужны уточнения:\n\n"
-                + ("- Укажите **shop_id** (идентификатор магазина)\n" if not analysis['has_shop_id'] else "")
-                + ("- Укажите **временной период** (например: 2024 год, последний месяц, конкретные даты)\n" if not analysis['has_time_period'] else "")
-                + "\nПожалуйста, уточните эти параметры, и я смогу выполнить ваш запрос."
-            )
-        
-        return analysis
     
     def format_table_response(self, response: str) -> str:
         """Улучшает форматирование таблиц в ответе агента"""
@@ -485,34 +455,69 @@ class AIAnalyst:
             return response
     
     @track_performance
-    def process_query(self, query: str) -> str:
-        """Обработка пользовательского запроса"""
+    def process_query(
+        self,
+        query: str,
+        allowed_shop_ids: Optional[List[int]] = None,
+        selected_shop_ids: Optional[List[int]] = None,
+        period_start: Optional[str] = None,
+        period_end: Optional[str] = None,
+    ) -> str:
+        """Обработка пользовательского запроса. Период обязателен (period_start, period_end в формате YYYY-MM-DD)."""
         try:
-            # Анализ параметров
+            if not period_start or not period_end:
+                return (
+                    "Сначала укажите период анализа данных. "
+                    "Отправьте команду /period и введите даты начала и конца периода (формат ГГГГ-ММ-ДД)."
+                )
+
+            # Список shop_id для запросов: выбранные или все разрешённые
+            effective_shop_ids: Optional[List[int]] = selected_shop_ids if selected_shop_ids else (allowed_shop_ids or None)
+            if effective_shop_ids is not None:
+                effective_shop_ids = [int(s) for s in effective_shop_ids]
+                set_allowed_shop_ids(effective_shop_ids)
+            else:
+                set_allowed_shop_ids(None)
+
             analysis = self.analyze_query_parameters(query)
             if analysis['missing_parameters']:
                 return analysis['recommendation']
             
-            # Получение схемы БД
             schema_info = schema_retriever(query)
             
+            shop_ids_instruction = ""
+            if effective_shop_ids:
+                shop_list = ", ".join(str(s) for s in effective_shop_ids)
+                shop_ids_instruction = (
+                    f"\n\nCRITICAL: Пользователь имеет доступ ТОЛЬКО к магазинам с shop_id: [{shop_list}]. "
+                    "В SQL ОБЯЗАТЕЛЬНО используй только эти идентификаторы: WHERE shop_id IN (" + shop_list + ") или WHERE shop_id = <один из этих ID>. Запросы с другими shop_id запрещены.\n"
+                )
+
+            period_instruction = (
+                f"\n\nCRITICAL: Временной период для анализа задан в настройках: с {period_start} по {period_end}. "
+                "В КАЖДОМ SQL-запросе ОБЯЗАТЕЛЬНО используй фильтр по дате в этих границах, например: "
+                f"AND (date >= '{period_start}' AND date <= '{period_end}') или date BETWEEN '{period_start}' AND '{period_end}'.\n"
+            )
+
             enhanced_prompt = f"""
             Пользовательский запрос: {query}
 
             Контекст схемы БД:
             {schema_info}
 
-            Параметры запроса:
-            - shop_id: {'УКАЗАН' if analysis['has_shop_id'] else 'НЕ УКАЗАН'}
-            - временной период: {'УКАЗАН' if analysis['has_time_period'] else 'НЕ УКАЗАН'}
+            Параметры (заданы в настройках сессии, не в запросе пользователя):
+            - shop_id: список разрешённых магазинов (см. ниже)
+            - временной период: с {period_start} по {period_end}
+            {shop_ids_instruction}
+            {period_instruction}
 
             INSTRUCTION: Use Database_Schema results to see which database each table is in ("База данных: ClickHouse" or "База данных: PostgreSQL"). Then use ClickHouse_Query for ClickHouse tables or PostgreSQL_Query for PostgreSQL tables. DO NOT invent or hallucinate data! Follow these steps:
 
             1. Analyze the user's question and database schema (and which database each table belongs to).
             2. Generate appropriate SQL query using available tables and columns for that database.
             3. ALWAYS turn on the filters where applicable:
-               - WHERE shop_id = specified identifier
-               - AND conditions by date (date BETWEEN or date >=/<=)
+               - WHERE shop_id = specified identifier (only from the allowed list above) or shop_id IN (allowed list)
+               - AND date in range [{period_start}, {period_end}] (date BETWEEN or date >=/<=)
             4. Execute query using ClickHouse_Query (for ClickHouse) or PostgreSQL_Query (for PostgreSQL).
             5. Process and analyze the results.
             6. Present findings in Markdown table format with STRICT adherence to formatting rules:

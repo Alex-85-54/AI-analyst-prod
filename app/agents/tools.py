@@ -1,7 +1,9 @@
+import pandas as pd
 from langchain_classic.tools import Tool
 from langchain_experimental.utilities import PythonREPL
 from app.database.clickhouse import clickhouse_client
 from app.database.postgres import postgres_client, _is_pg_configured as is_pg_configured
+from app.context import set_last_query_df, get_last_query_df
 from app.utils.logging import logger
 from app.utils.metrics import track_query_performance
 from langchain_community.vectorstores import FAISS
@@ -11,6 +13,7 @@ from langchain_core.documents import Document
 from config.settings import settings
 from functools import lru_cache
 from hashlib import md5
+import json
 import os
 import re
 
@@ -252,13 +255,71 @@ def schema_retriever(query: str) -> str:
     query_hash = md5(query.encode('utf-8')).hexdigest()
     return schema_retriever_cached(query_hash, query)
 
+def _normalize_query_input(inp) -> str:
+    """Приводит вход инструмента к строке SQL (tool-calling может передать dict или JSON-строку)."""
+    if isinstance(inp, str):
+        s = inp.strip()
+        # Агент может передать JSON-строку вида '{"query": "SELECT ..."}'
+        if s.startswith("{") and ("query" in s or "input" in s or "sql" in s):
+            try:
+                data = json.loads(s)
+                q = data.get("query") or data.get("input") or data.get("sql")
+                if q:
+                    return str(q).strip()
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return s
+    if isinstance(inp, dict):
+        q = inp.get("query") or inp.get("input") or inp.get("sql")
+        if not q and isinstance(inp.get("arguments"), dict):
+            q = inp["arguments"].get("query") or inp["arguments"].get("input")
+        if q:
+            return str(q).strip()
+        if inp:
+            return str(next(iter(inp.values()), "")).strip()
+    return str(inp).strip() if inp is not None else ""
+
+
+def _maybe_set_last_query_df(result: pd.DataFrame) -> None:
+    """
+    Сохраняем результат как «основную» таблицу для экспорта только если у него больше строк,
+    чем у уже сохранённой. Так в Excel попадает основной результат, а не промежуточные запросы.
+    """
+    current = get_last_query_df()
+    if current is None or (hasattr(current, "empty") and not current.empty and len(result) >= len(current)):
+        set_last_query_df(result)
+        logger.debug("Last query DataFrame set (%d rows)", len(result))
+
+
+def _clickhouse_query_with_context(query):
+    """Обёртка: выполняет запрос к ClickHouse и сохраняет основной DataFrame в контекст (по макс. числу строк)."""
+    query_str = _normalize_query_input(query)
+    if not query_str:
+        logger.warning("ClickHouse_Query received empty query after normalize; input type=%s", type(query).__name__)
+    result = clickhouse_client.execute_safe_query(query_str)
+    if isinstance(result, pd.DataFrame) and not result.empty:
+        _maybe_set_last_query_df(result)
+    return result
+
+
+def _postgres_query_with_context(query):
+    """Обёртка: выполняет запрос к PostgreSQL и сохраняет основной DataFrame в контекст (по макс. числу строк)."""
+    query_str = _normalize_query_input(query)
+    if not query_str:
+        logger.warning("PostgreSQL_Query received empty query after normalize; input type=%s", type(query).__name__)
+    result = postgres_client.execute_safe_query(query_str)
+    if isinstance(result, pd.DataFrame) and not result.empty:
+        _maybe_set_last_query_df(result)
+    return result
+
+
 def get_tools():
     """Инициализация инструментов LangChain"""
     python_repl = PythonREPL()
     tools_list = [
         Tool(
             name="ClickHouse_Query",
-            func=clickhouse_client.execute_safe_query,
+            func=_clickhouse_query_with_context,
             description=(
                 "EXECUTE SQL QUERIES AGAINST CLICKHOUSE. Use this tool when the schema search (Database_Schema) "
                 "returned tables with 'База данных: ClickHouse'. Input: SQL query (e.g. SELECT ... FROM rees46.table_name WHERE ...). "
@@ -270,7 +331,7 @@ def get_tools():
         tools_list.append(
             Tool(
                 name="PostgreSQL_Query",
-                func=postgres_client.execute_safe_query,
+                func=_postgres_query_with_context,
                 description=(
                     "EXECUTE SQL QUERIES AGAINST POSTGRESQL. Use this tool when the schema search (Database_Schema) "
                     "returned tables with 'База данных: PostgreSQL'. Input: SQL query (e.g. SELECT ... FROM table_name WHERE ...). "

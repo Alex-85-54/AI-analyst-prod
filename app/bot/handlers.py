@@ -1,11 +1,14 @@
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from io import BytesIO
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from telegram.error import BadRequest
 from app.agents.analyst import ai_analyst, get_llm
 from app.agents.tools import vector_db, rag_embedding_model
-from app.auth.security import is_user_authorized
+from app.auth.security import is_user_authorized, get_user_info_for_authorized, get_all_shop_ids
+from app.context import get_last_query_df
 from app.utils.logging import logger
 from app.utils.metrics import track_performance
+from app.utils.table_image import dataframe_to_png
 from app.database.clickhouse import clickhouse_client
 from app.database.postgres import postgres_client, _is_pg_configured as is_pg_configured
 from config.settings import settings
@@ -14,9 +17,14 @@ import concurrent.futures
 from collections.abc import MutableMapping
 import re
 import time
+from datetime import datetime
 
 # Кнопка «Проверка систем» в клавиатуре
 HEALTH_CHECK_BUTTON = "Проверка систем"
+# Эмодзи для выбора магазинов: ✅ выбран (горит), ⭕ не выбран (потух). U+2B55 = hollow red circle
+SHOP_SELECTED = "✅"
+SHOP_NOT_SELECTED = "⭕"  # U+2B55
+
 _reply_markup = ReplyKeyboardMarkup(
     [[KeyboardButton(HEALTH_CHECK_BUTTON)]],
     resize_keyboard=True,
@@ -86,11 +94,87 @@ class TimedDict(MutableMapping):
 # Заменяем простой словарь на оптимизированный
 user_requests: TimedDict = TimedDict(ttl=settings.RATE_LIMIT_WINDOW)
 
+# Последний DataFrame по user_id для кнопки «Выгрузить в Excel» (на случай если user_data не сохраняет объект)
+_last_query_df_by_user: dict = {}
+
 # Создаем пул потоков для обработки запросов
 _executor = concurrent.futures.ThreadPoolExecutor(
     max_workers=settings.MAX_CONCURRENT_REQUESTS,
     thread_name_prefix="analyst_worker"
 )
+
+
+# Маска даты для подсказки пользователю (ГГГГ-ММ-ДД)
+DATE_MASK_HINT = "ГГГГ-ММ-ДД"
+DATE_EXAMPLE = "2024-01-01"
+
+
+def _parse_date(text: str) -> str | None:
+    """
+    Парсит дату из строки. Поддерживает: ГГГГ-ММ-ДД, ДД.ММ.ГГГГ, ДД/ММ/ГГГГ.
+    Возвращает дату в формате YYYY-MM-DD или None при ошибке.
+    """
+    if not text or not text.strip():
+        return None
+    text = text.strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            dt = datetime.strptime(text, fmt)
+            if 2000 <= dt.year <= 2100:
+                return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
+
+def _normalize_shop_ids(shop_ids) -> list:
+    """Приводит shop_ids из user_info к списку int."""
+    if not shop_ids:
+        return []
+    return [int(s) for s in shop_ids]
+
+
+def _get_effective_allowed_shop_ids(user_info: dict | None) -> list:
+    """Разрешённые магазины для пользователя: из user_info или все (если shop_ids пустой)."""
+    raw = (user_info or {}).get("shop_ids")
+    ids = _normalize_shop_ids(raw)
+    if not ids:
+        ids = get_all_shop_ids()
+    return ids
+
+
+def _build_shop_selector_keyboard(allowed_shop_ids: list, selected_shop_ids: list) -> InlineKeyboardMarkup:
+    """Клавиатура выбора магазинов: ✅ 4987 (выбран), ⭕ 4987 (не выбран)."""
+    selected_set = set(int(s) for s in selected_shop_ids)
+    buttons = [
+        [InlineKeyboardButton(
+            f"{SHOP_SELECTED} {sid}" if int(sid) in selected_set else f"{SHOP_NOT_SELECTED} {sid}",
+            callback_data=f"shop_toggle:{sid}",
+        )]
+        for sid in allowed_shop_ids
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+def _build_menu_buttons_row() -> list:
+    """Ряд кнопок: Справка и Задать период (видно до появления кнопки «Меню» в Telegram)."""
+    return [
+        InlineKeyboardButton("📖 Справка", callback_data="cmd_help"),
+        InlineKeyboardButton("📅 Задать период", callback_data="cmd_period"),
+    ]
+
+
+def _build_selector_with_menu(allowed_shop_ids: list, selected_shop_ids: list) -> InlineKeyboardMarkup:
+    """Клавиатура выбора магазинов + ряд «Справка» и «Задать период»."""
+    base = _build_shop_selector_keyboard(allowed_shop_ids, selected_shop_ids)
+    # base.inline_keyboard может быть tuple — приводим к list для конкатенации
+    rows = list(base.inline_keyboard) + [_build_menu_buttons_row()]
+    return InlineKeyboardMarkup(rows)
+
+
+def _keyboard_only_menu_buttons() -> InlineKeyboardMarkup:
+    """Клавиатура только из кнопок Справка и Задать период."""
+    return InlineKeyboardMarkup([_build_menu_buttons_row()])
 
 
 def _run_health_checks():
@@ -175,22 +259,194 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(welcome_unauthorized, parse_mode='HTML')
             return
 
-        welcome_authorized = (
-            "👋 <b>Привет! Я ИИ-аналитик компании REES46.</b>\n"
-            "Задайте мне вопрос, и я постараюсь помочь!\n\n"
-            "💡 <b>Примеры запросов:</b>\n"
-            "• «Статистика заказов для магазина 4987 за 2024 год»\n"
-            "• «Топ товаров за последний месяц для магазина 4987»\n"
-        )
-        await update.message.reply_text(
-            welcome_authorized,
-            parse_mode="HTML",
-            reply_markup=_reply_markup,
-        )
+        user_info = get_user_info_for_authorized(user.id, user.username)
+        allowed = _get_effective_allowed_shop_ids(user_info)
+        context.user_data["allowed_shop_ids"] = allowed
+        if len(allowed) > 1:
+            context.user_data["selected_shop_ids"] = context.user_data.get("selected_shop_ids") or []
+            selector_text = (
+                "Выберите магазины для работы (нажмите кнопку, чтобы включить/выключить).\n"
+                "<b>✅</b> — выбран, <b>⭕</b> — не выбран. Нужен хотя бы один."
+            )
+            await update.message.reply_text(
+                "👋 <b>Привет! Я ИИ-аналитик компании REES46.</b>\n"
+                "Задайте мне вопрос, и я постараюсь помочь!\n\n"
+                "У вас несколько магазинов — выберите, с какими работать.\n"
+                "Период для анализа задаётся командой /period.\n\n"
+                "Прочитать руководство пользователя: /help",
+                parse_mode="HTML",
+                reply_markup=_reply_markup,
+            )
+            await update.message.reply_text(
+                selector_text,
+                parse_mode="HTML",
+                reply_markup=_build_selector_with_menu(allowed, context.user_data["selected_shop_ids"]),
+            )
+        else:
+            context.user_data["selected_shop_ids"] = allowed
+            welcome_authorized = (
+                "👋 <b>Привет! Я ИИ-аналитик компании REES46.</b>\n"
+                "Задайте мне вопрос, и я постараюсь помочь!\n\n"
+                "📅 Период для анализа задаётся командой /period (даты начала и конца).\n\n"
+                "💡 <b>Примеры запросов:</b>\n"
+                "• «Статистика заказов за период»\n"
+                "• «Топ товаров по продажам»\n\n"
+                "Прочитать руководство пользователя: /help"
+            )
+            await update.message.reply_text(
+                welcome_authorized,
+                parse_mode="HTML",
+                reply_markup=_reply_markup,
+            )
+            await update.message.reply_text(
+                "Быстрые действия:",
+                reply_markup=_keyboard_only_menu_buttons(),
+            )
 
     except Exception as e:
         logger.error(f"Error in start handler: {str(e)}", exc_info=True)
         await update.message.reply_text("Произошла ошибка при обработке команды /start")
+
+
+HELP_TEXT = """📖 <b>Краткая справка</b>
+
+Я помогаю анализировать данные по вашим магазинам: заказы, товары, рассылки и др.
+
+<b>Перед первым запросом:</b>
+• <b>/period</b> — задайте период анализа (даты начала и конца). Период один раз и действует на все запросы, пока не смените.
+• Если у вас несколько магазинов — выберите, с какими работать (кнопки после /start или команда <b>/shops</b>).
+
+<b>Как задавать вопросы:</b>
+Пишите запрос обычными словами, например:
+• «Статистика заказов за период»
+• «Топ товаров по продажам»
+• «Конверсия в покупку»
+
+<b>Подсказка:</b>
+Если в результате запроса бот выдал ошибку, непонятный результат или отсутствие данных — попробуйте отправить ему тот же самый запрос ещё раз; результат может быть другим."""
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /help — краткое руководство для пользователя."""
+    await update.message.reply_text(HELP_TEXT, parse_mode="HTML")
+
+
+async def shops_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /shops — показать выбор магазинов (если их несколько)."""
+    if not is_user_authorized(update.effective_user.id, update.effective_user.username):
+        await update.message.reply_text("⛔ Доступ запрещён.")
+        return
+    user_info = get_user_info_for_authorized(update.effective_user.id, update.effective_user.username)
+    allowed = _get_effective_allowed_shop_ids(user_info)
+    if len(allowed) <= 1:
+        await update.message.reply_text("У вас доступен один магазин, выбор не требуется.")
+        return
+    context.user_data["allowed_shop_ids"] = allowed
+    selected = context.user_data.get("selected_shop_ids") or []
+    selector_text = (
+        "Выберите магазины для работы (нажмите кнопку, чтобы включить/выключить).\n"
+        "<b>✅</b> — выбран, <b>⭕</b> — не выбран."
+    )
+    await update.message.reply_text(
+        selector_text,
+        parse_mode="HTML",
+        reply_markup=_build_selector_with_menu(allowed, selected),
+    )
+
+
+async def period_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /period — начало диалога задания периода (два шага: дата начала, дата конца)."""
+    if not is_user_authorized(update.effective_user.id, update.effective_user.username):
+        await update.message.reply_text("⛔ Доступ запрещён.")
+        return
+    context.user_data["awaiting_period"] = "start"
+    await update.message.reply_text(
+        "📅 <b>Укажите период для анализа данных</b>\n\n"
+        "Шаг 1 из 2: <b>дата начала</b> периода.\n\n"
+        f"Формат: <code>{DATE_MASK_HINT}</code>\n"
+        f"Например: <code>{DATE_EXAMPLE}</code>\n\n"
+        "Также можно: ДД.ММ.ГГГГ или ДД/ММ/ГГГГ",
+        parse_mode="HTML",
+    )
+
+
+async def cmd_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопки «Справка» — показать руководство (аналог /help)."""
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(HELP_TEXT, parse_mode="HTML")
+
+
+async def cmd_period_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопки «Задать период» — запуск диалога периода (аналог /period)."""
+    query = update.callback_query
+    await query.answer()
+    if not is_user_authorized(update.effective_user.id, update.effective_user.username):
+        await query.message.reply_text("⛔ Доступ запрещён.")
+        return
+    context.user_data["awaiting_period"] = "start"
+    await query.message.reply_text(
+        "📅 <b>Укажите период для анализа данных</b>\n\n"
+        "Шаг 1 из 2: <b>дата начала</b> периода.\n\n"
+        f"Формат: <code>{DATE_MASK_HINT}</code>\n"
+        f"Например: <code>{DATE_EXAMPLE}</code>\n\n"
+        "Также можно: ДД.ММ.ГГГГ или ДД/ММ/ГГГГ",
+        parse_mode="HTML",
+    )
+
+
+async def export_excel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик «Выгрузить таблицу в Excel»: отправляет последний DataFrame как .xlsx."""
+    query = update.callback_query
+    user_id = update.effective_user.id if update.effective_user else None
+    last_df = context.user_data.get("last_query_df")
+    if last_df is None and user_id is not None:
+        last_df = _last_query_df_by_user.get(user_id)
+    if last_df is None or (hasattr(last_df, "empty") and last_df.empty):
+        await query.answer(text="Нет последней таблицы для выгрузки.", show_alert=True)
+        return
+    try:
+        filename = f"analyst_{datetime.now():%Y-%m-%d_%H-%M-%S}.xlsx"
+        buf = BytesIO()
+        last_df.to_excel(buf, index=False, engine="openpyxl")
+        buf.seek(0)
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=buf,
+            filename=filename,
+        )
+        await query.answer(text="Файл отправлен")
+    except Exception as e:
+        logger.exception("Export Excel error")
+        await query.answer(text="Ошибка при выгрузке", show_alert=True)
+        await query.message.reply_text(f"Ошибка при выгрузке: {str(e)}")
+
+
+async def shop_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатия на кнопку магазина: переключить выбор."""
+    query = update.callback_query
+    await query.answer()
+    if not query.data or not query.data.startswith("shop_toggle:"):
+        return
+    try:
+        sid = int(query.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return
+    allowed = context.user_data.get("allowed_shop_ids") or []
+    if sid not in [int(s) for s in allowed]:
+        return
+    selected = list(context.user_data.get("selected_shop_ids") or [])
+    selected_set = set(int(s) for s in selected)
+    if sid in selected_set:
+        selected_set.discard(sid)
+    else:
+        selected_set.add(sid)
+    context.user_data["selected_shop_ids"] = sorted(selected_set)
+    new_markup = _build_selector_with_menu(allowed, context.user_data["selected_shop_ids"])
+    try:
+        await query.edit_message_reply_markup(reply_markup=new_markup)
+    except BadRequest:
+        pass
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -252,7 +508,87 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(access_denied_message, parse_mode='Markdown')
             return
 
-        logger.info(f"User {user.id} is authorized, processing query: {question}")
+        # Диалог задания периода (два шага)
+        awaiting = context.user_data.get("awaiting_period")
+        if awaiting == "start":
+            start_str = _parse_date(question)
+            if not start_str:
+                await update.message.reply_text(
+                    f"⚠️ Неверный формат даты. Введите дату начала в формате <code>{DATE_MASK_HINT}</code>, например <code>{DATE_EXAMPLE}</code>",
+                    parse_mode="HTML",
+                )
+                return
+            context.user_data["period_start"] = start_str
+            context.user_data["awaiting_period"] = "end"
+            await update.message.reply_text(
+                "✅ Дата начала сохранена.\n\n"
+                "Шаг 2 из 2: <b>дата конца</b> периода.\n\n"
+                f"Формат: <code>{DATE_MASK_HINT}</code>\n"
+                f"Например: <code>2024-12-31</code>\n\n"
+                "Конец периода должен быть не раньше даты начала.",
+                parse_mode="HTML",
+            )
+            return
+        if awaiting == "end":
+            end_str = _parse_date(question)
+            if not end_str:
+                await update.message.reply_text(
+                    f"⚠️ Неверный формат даты. Введите дату конца в формате <code>{DATE_MASK_HINT}</code>.",
+                    parse_mode="HTML",
+                )
+                return
+            start_str = context.user_data.get("period_start")
+            if start_str and end_str < start_str:
+                await update.message.reply_text(
+                    "⚠️ Дата конца периода не может быть раньше даты начала. Введите дату конца заново."
+                )
+                return
+            context.user_data["period_end"] = end_str
+            del context.user_data["awaiting_period"]
+            await update.message.reply_text(
+                f"✅ Период анализа установлен: с <b>{start_str}</b> по <b>{end_str}</b>.\n\n"
+                "Теперь можно задавать вопросы по данным за этот период. Чтобы изменить период — снова отправьте /period.",
+                parse_mode="HTML",
+            )
+            return
+
+        user_info = get_user_info_for_authorized(user.id, user.username)
+        allowed_shop_ids = _get_effective_allowed_shop_ids(user_info)
+        context.user_data["allowed_shop_ids"] = allowed_shop_ids
+
+        if len(allowed_shop_ids) > 1:
+            selected_shop_ids = list(context.user_data.get("selected_shop_ids") or [])
+            selected_shop_ids = [int(s) for s in selected_shop_ids]
+            if not selected_shop_ids:
+                # Пустой список выбранных магазинов — не выполняем анализ, показываем ошибку и выбор
+                warning_msg = (
+                    "⚠️ <b>Сначала выберите магазины</b>\n\n"
+                    "У вас доступно несколько магазинов. Выберите хотя бы один (нажмите на кнопки ниже), "
+                    "после чего можно будет задавать вопросы по аналитике."
+                )
+                await update.message.reply_text(warning_msg, parse_mode="HTML")
+                await update.message.reply_text(
+                    "Нажмите кнопку магазина, чтобы включить или выключить его. <b>✅</b> — выбран, <b>⭕</b> — не выбран.",
+                    parse_mode="HTML",
+                    reply_markup=_build_selector_with_menu(allowed_shop_ids, []),
+                )
+                return
+        else:
+            selected_shop_ids = allowed_shop_ids
+            context.user_data["selected_shop_ids"] = selected_shop_ids
+
+        period_start = context.user_data.get("period_start")
+        period_end = context.user_data.get("period_end")
+        if not period_start or not period_end:
+            await update.message.reply_text(
+                "⚠️ <b>Сначала укажите период анализа</b>\n\n"
+                "Период задаётся один раз и действует на все запросы до смены.\n\n"
+                "Отправьте команду <code>/period</code> и введите даты начала и конца периода (формат ГГГГ-ММ-ДД).",
+                parse_mode="HTML",
+            )
+            return
+
+        logger.info(f"User {user.id} is authorized, processing query: {question} (shops: {selected_shop_ids}, period: {period_start}–{period_end})")
 
         # Индикатор набора
         stop_typing = asyncio.Event()
@@ -272,18 +608,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         typing_task = asyncio.create_task(typing_indicator())
 
+        def _run_process_query():
+            result = ai_analyst.process_query(
+                question,
+                allowed_shop_ids=allowed_shop_ids,
+                selected_shop_ids=selected_shop_ids,
+                period_start=period_start,
+                period_end=period_end,
+            )
+            last_df = get_last_query_df()
+            return (result, last_df)
+
         try:
             # Обработка запроса в thread pool с явным таймаутом (без него бот может ждать бесконечно)
             loop = asyncio.get_event_loop()
             timeout_sec = getattr(settings, "BOT_HANDLER_TIMEOUT", 660.0)
             logger.info(f"Starting query processing for: {question} (timeout={timeout_sec}s)")
             try:
-                response = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        _executor,
-                        ai_analyst.process_query,
-                        question,
-                    ),
+                response, last_df = await asyncio.wait_for(
+                    loop.run_in_executor(_executor, _run_process_query),
                     timeout=timeout_sec,
                 )
             except asyncio.TimeoutError:
@@ -296,18 +639,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             logger.info(f"Query processed successfully, response length: {len(response)}")
 
+            # Сохраняем последний DataFrame для кнопки «Выгрузить в Excel» (user_data + кэш по user_id)
+            context.user_data["last_query_df"] = last_df
+            if last_df is not None:
+                _last_query_df_by_user[user.id] = last_df
+                logger.info(f"Last query DataFrame stored for user_id={user.id} (rows={len(last_df)})")
+            else:
+                logger.debug("No DataFrame from agent for this query (last_df is None)")
+
             # Проверяем, не слишком ли длинный ответ для Telegram
             if len(response) > 4000:
                 response = response[:4000] + "\n\n... (сообщение сокращено из-за ограничений Telegram)"
 
-            # Конвертируем Markdown агента в HTML и отправляем с parse_mode для форматирования
+            # Конвертируем Markdown агента в HTML
             response_html = markdown_to_telegram_html(response)
+            # Кнопка «Выгрузить таблицу в Excel» под текстовым ответом
+            excel_kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Выгрузить таблицу в Excel", callback_data="export_excel")],
+            ])
             try:
-                await update.message.reply_text(response_html, parse_mode="HTML")
+                await update.message.reply_text(
+                    response_html,
+                    parse_mode="HTML",
+                    reply_markup=excel_kb,
+                )
             except BadRequest as e:
-                # Если HTML некорректен (например, неэкранированный символ), отправляем как plain text
                 logger.warning(f"Telegram HTML parse error, sending as plain text: {e}")
-                await update.message.reply_text(response)
+                await update.message.reply_text(response, reply_markup=excel_kb)
+
+            # PNG таблицы из последнего DataFrame — вторым сообщением (текст + картинка «одним блоком»)
+            if last_df is not None and not last_df.empty:
+                try:
+                    png_buf = dataframe_to_png(last_df)
+                    if png_buf.getvalue():
+                        png_buf.seek(0)
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=png_buf,
+                        )
+                except Exception as img_err:
+                    logger.warning(f"Failed to send table PNG: {img_err}")
 
         except Exception as e:
             logger.error(f"Message processing error: {str(e)}", exc_info=True)
@@ -343,5 +714,12 @@ def get_handlers():
     """Возвращает список обработчиков"""
     return [
         CommandHandler("start", start),
+        CommandHandler("help", help_command),
+        CommandHandler("shops", shops_command),
+        CommandHandler("period", period_command),
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
+        CallbackQueryHandler(cmd_help_callback, pattern="^cmd_help$"),
+        CallbackQueryHandler(cmd_period_callback, pattern="^cmd_period$"),
+        CallbackQueryHandler(shop_toggle_callback, pattern="^shop_toggle:"),
+        CallbackQueryHandler(export_excel_callback, pattern="^export_excel$"),
     ]

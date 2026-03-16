@@ -29,19 +29,20 @@
 
 # ДАТА-КАТАЛОГ: ЗАКАЗЫ (ORDERS)
 
-| Таблица | Назначение | Основные поля |
-|---------|------------|---------------|
-| **orders** | Основная таблица заказов | shop_id, uniqid, client_id, date, value, status, utm, stream, payment_type, delivery_type, promocode, offline |
-| **order_items** | Товары в заказе | order_id, item_id, item_uniqid, amount, price, discount, recommended_by, recommended_code, segment, brand, categories, line_id |
-| **order_histories** | История изменений заказа | order_id, status, payment_method, delivery_method, common_value |
-| **order_statuses** | Маппинг внешних статусов заказов | shop_id, status (внешний), internal_status |
-| **order_property_keys** | Справочник кастомных свойств заказов | shop_id, key, name, property_type |
-| **order_property_values** | Значения кастомных свойств заказов | order_id, key, value_string, value_integer, value_date |
-| **loyalty_orders** | Данные заказов в программе лояльности | uniqid, identifier, discounts, promo_codes, certificates, referrer_identifier |
-| **nps_reviews** | NPS-оценки и отзывы к заказам | order_id, client_id, rate, comment, nps_category_id |
-| **reputations** | Отзывы на товары/заказы | entity_id, entity_type, rating, plus, minus, comment |
-| **order_source_events** | Атрибуция заказов по источникам | shop_id, client_id, source_type, source_code, source_id |
-| **orders_see_also** | Совместные покупки для рекомендаций | shop_id, order_id, items (array), date |
+| Таблица                      | Назначение | Основные поля                                                                                                                           |
+|------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| **orders**                   | Основная таблица заказов | shop_id, uniqid, client_id, date, value, status, utm, stream, payment_type, delivery_type, promocode, offline                           |
+| **order_items** *PostgreSQL* | Товары в заказе | order_id, item_id, item_uniqid, amount, price, discount, recommended_by, recommended_code, line_id                                      |
+| **order_items** *Clickhouse* | Товары в заказе | did, sid, order_id, item_uniqid, amount, price, discount, recommended_by, recommended_code, segment, brand, categories, line_id |
+| **order_histories**          | История изменений заказа | order_id, status, payment_method, delivery_method, common_value                                                                         |
+| **order_statuses**           | Маппинг внешних статусов заказов | shop_id, status (внешний), internal_status                                                                                              |
+| **order_property_keys**      | Справочник кастомных свойств заказов | shop_id, key, name, property_type                                                                                                       |
+| **order_property_values**    | Значения кастомных свойств заказов | order_id, key, value_string, value_integer, value_date                                                                                  |
+| **loyalty_orders**           | Данные заказов в программе лояльности | uniqid, identifier, discounts, promo_codes, certificates, referrer_identifier                                                           |
+| **nps_reviews**              | NPS-оценки и отзывы к заказам | order_id, client_id, rate, comment, nps_category_id                                                                                     |
+| **reputations**              | Отзывы на товары/заказы | entity_id, entity_type, rating, plus, minus, comment                                                                                    |
+| **order_source_events**      | Атрибуция заказов по источникам | shop_id, client_id, source_type, source_code, source_id                                                                                 |
+| **orders_see_also**          | Совместные покупки для рекомендаций | shop_id, order_id, items (array), date                                                                                                  |
 
 ---
 

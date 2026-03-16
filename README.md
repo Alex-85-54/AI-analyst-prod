@@ -1,9 +1,10 @@
 # О проекте
 
 ИИ-агент аналитик данных. Принимает вопросы пользователей на естественном языке, выдает агрегированную информацию в виде таблицы Markdown, делает караткий анализ и дает рекомендации для маркетолога.
-В качестве LLM использется DeepSeek.
+В качестве LLM использется DeepSeek и GPT
 Имеет доступ к базам данных: 
 - Clickhouse, кластера: rees46
+- PostgreSQL, кластера: rees46
 
 ## Запуск через Docker
 
@@ -30,7 +31,7 @@ docker exec -it ai-analyst python user_manager.py list
 ```
 ### Добавить пользователя
 ```
-docker exec -it ai-analyst python user_manager.py add 123456789 "username" "Имя Фамилия" "analyst" "4987,4988"
+docker exec -it ai-analyst python user_manager.py add <user_id> <username> <Имя Фамилия> <role> <"4987,4988">
 ```
 ## Управление логированием
 ### Просмотр последних 100 строк
@@ -49,13 +50,12 @@ docker exec -it ai-analyst python scripts/view_logs.py --level ERROR
 ```
 docker exec -it ai-analyst python scripts/clean_logs.py --clean
 ```
- #### Статистика логов
+#### Статистика логов
  --stats
 #### Расположение файла
  --file
 #### Сделать бэкап
 --keep-backups
-
 
 ## Безопасность
 - Настройки БД должны позволять только запросы чтения
@@ -69,3 +69,7 @@ docker exec -it ai-analyst python scripts/clean_logs.py --clean
 Если GPT не доступна, то сервис автоматически переключается на использование DeepSeek. 
 Узнать какая LLM в данный момент используется можно кнопкой "Проверка систем" в интерфейсе бота.
 
+## Ограничение доступа к данным других магазинов
+- доступные магазины для пользователя указываются в allowed_users.json в списке shop_ids, отдельно для каждого пользователя
+- если список пустой - для пользователя доступны все магазины
+- список всех доступных магазинов указывается в allowed_users.json в all_shop_ids

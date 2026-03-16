@@ -4,14 +4,15 @@ __pycache__/
 build/
 dist/
 wheels/
-*.egg-info
-logs.log
+*.egg-
 .env
-
-# Кэш моделей HuggingFace (FRIDA) — не коммитить
+allowed_users.json
+.dockerignore
 cache/
+logs/
+docker-compose.yml
+requirements/
+requirements.txt
 
 # Virtual environments
 .venv
-.gitattributes
-allowed_users.json
