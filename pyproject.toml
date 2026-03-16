@@ -20,7 +20,7 @@ dependencies = [
     "langgraph-sdk==0.3.9",
     "faiss-cpu==1.13.2",
     "sentence-transformers==5.0.0",
-    "python-telegram-bot==22.3",
+    "python-telegram-bot==22.6",
     "python-dotenv==1.1.1",
     "pydantic==2.11.10",
     "pydantic-settings>=2.0.0",
