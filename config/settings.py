@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     # Security - путь к файлу с пользователями
     AUTH_CONFIG_PATH: str = Field("allowed_users.json", env="AUTH_CONFIG_PATH")
 
+    # Internal API: список магазинов по Telegram user_id
+    SHOPS_API_BASE_URL: str = Field(
+        "https://app.rees46.ru/api/internal",
+        env="SHOPS_API_BASE_URL",
+        description="Base URL for internal API (shops-by-telegram/<user_id>)",
+    )
+    SHOPS_API_TIMEOUT: float = Field(10.0, env="SHOPS_API_TIMEOUT")
+    # TTL кэша магазинов в user_data (сек). После протухания обновляем при первом сообщении.
+    SHOPS_CACHE_TTL: int = Field(3600, env="SHOPS_CACHE_TTL")
+
     # Logging settings
     LOG_FILE_PATH: str = Field("logs/app.log", env="LOG_FILE_PATH")
     LOG_LEVEL: str = Field("INFO", env="LOG_LEVEL")

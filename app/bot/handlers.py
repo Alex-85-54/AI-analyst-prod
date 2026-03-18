@@ -4,7 +4,8 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQ
 from telegram.error import BadRequest
 from app.agents.analyst import ai_analyst, get_llm
 from app.agents.tools import vector_db, rag_embedding_model
-from app.auth.security import is_user_authorized, get_user_info_for_authorized, get_all_shop_ids
+from app.auth.security import is_user_authorized
+from app.auth.shops_api import fetch_shops_by_telegram_user_id
 from app.context import get_last_query_df
 from app.utils.logging import logger
 from app.utils.metrics import track_performance
@@ -24,6 +25,9 @@ HEALTH_CHECK_BUTTON = "Проверка систем"
 # Эмодзи для выбора магазинов: ✅ выбран (горит), ⭕ не выбран (потух). U+2B55 = hollow red circle
 SHOP_SELECTED = "✅"
 SHOP_NOT_SELECTED = "⭕"  # U+2B55
+
+# Ограничения UI Telegram для выбора магазинов
+SHOPS_INLINE_MAX = 150
 
 _reply_markup = ReplyKeyboardMarkup(
     [[KeyboardButton(HEALTH_CHECK_BUTTON)]],
@@ -127,20 +131,34 @@ def _parse_date(text: str) -> str | None:
     return None
 
 
-def _normalize_shop_ids(shop_ids) -> list:
-    """Приводит shop_ids из user_info к списку int."""
-    if not shop_ids:
+async def _refresh_allowed_shop_ids(update: Update, context: ContextTypes.DEFAULT_TYPE) -> list:
+    """
+    Обновляет список доступных магазинов из internal API и пишет в user_data.
+
+    По требованиям: если API вернул [] или None — блокируем аналитику и отправляем к администратору.
+    """
+    user_id = update.effective_user.id if update.effective_user else None
+    if user_id is None:
         return []
-    return [int(s) for s in shop_ids]
-
-
-def _get_effective_allowed_shop_ids(user_info: dict | None) -> list:
-    """Разрешённые магазины для пользователя: из user_info или все (если shop_ids пустой)."""
-    raw = (user_info or {}).get("shop_ids")
-    ids = _normalize_shop_ids(raw)
-    if not ids:
-        ids = get_all_shop_ids()
-    return ids
+    shops = await fetch_shops_by_telegram_user_id(user_id)
+    if not shops:
+        # жёстко отказываем в работе
+        await update.effective_message.reply_text(
+            "⛔ У вас нет доступных магазинов для аналитики (или сервис магазинов недоступен).\n\n"
+            "Обратитесь к администратору для выдачи доступа."
+        )
+        context.user_data["allowed_shop_ids"] = []
+        context.user_data["allowed_shop_ids_fetched_at"] = time.time()
+        context.user_data["selected_shop_ids"] = []
+        return []
+    shops = [int(s) for s in shops]
+    context.user_data["allowed_shop_ids"] = shops
+    context.user_data["allowed_shop_ids_fetched_at"] = time.time()
+    # если ранее были выбранные — фильтруем, чтобы не осталось недоступных
+    selected = [int(s) for s in (context.user_data.get("selected_shop_ids") or [])]
+    selected = [s for s in selected if s in set(shops)]
+    context.user_data["selected_shop_ids"] = selected
+    return shops
 
 
 def _build_shop_selector_keyboard(allowed_shop_ids: list, selected_shop_ids: list) -> InlineKeyboardMarkup:
@@ -169,6 +187,22 @@ def _build_selector_with_menu(allowed_shop_ids: list, selected_shop_ids: list) -
     base = _build_shop_selector_keyboard(allowed_shop_ids, selected_shop_ids)
     # base.inline_keyboard может быть tuple — приводим к list для конкатенации
     rows = list(base.inline_keyboard) + [_build_menu_buttons_row()]
+    return InlineKeyboardMarkup(rows)
+
+
+def _build_shops_big_menu() -> InlineKeyboardMarkup:
+    """Меню управления магазинами для большого списка (только быстрый режим)."""
+    rows = [
+        [
+            InlineKeyboardButton("🧹 Сбросить выбор", callback_data="shops:reset"),
+            InlineKeyboardButton("✅ Готово", callback_data="shops:done"),
+        ],
+        [
+            InlineKeyboardButton("📋 Показать выбранные", callback_data="shops:selected"),
+            InlineKeyboardButton("🗑 Очистить выбранные", callback_data="shops:clear_selected"),
+        ],
+        _build_menu_buttons_row(),
+    ]
     return InlineKeyboardMarkup(rows)
 
 
@@ -259,9 +293,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(welcome_unauthorized, parse_mode='HTML')
             return
 
-        user_info = get_user_info_for_authorized(user.id, user.username)
-        allowed = _get_effective_allowed_shop_ids(user_info)
-        context.user_data["allowed_shop_ids"] = allowed
+        # Обновляем список доступных магазинов из internal API
+        allowed = await _refresh_allowed_shop_ids(update, context)
+        if not allowed:
+            return
         if len(allowed) > 1:
             context.user_data["selected_shop_ids"] = context.user_data.get("selected_shop_ids") or []
             selector_text = (
@@ -277,11 +312,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML",
                 reply_markup=_reply_markup,
             )
-            await update.message.reply_text(
-                selector_text,
-                parse_mode="HTML",
-                reply_markup=_build_selector_with_menu(allowed, context.user_data["selected_shop_ids"]),
-            )
+            allowed_sorted = sorted([int(s) for s in allowed])
+            selected_sorted = [int(s) for s in (context.user_data.get("selected_shop_ids") or [])]
+            # Если магазинов слишком много — используем только быстрый режим как в /shops
+            if len(allowed_sorted) > SHOPS_INLINE_MAX:
+                context.user_data["allowed_shop_ids"] = allowed_sorted
+                context.user_data["shops_big_mode"] = True
+                await update.message.reply_text(
+                    "У вас доступно много магазинов.\n\n"
+                    "Быстрый выбор: отправьте ID магазина (например <code>4987</code>) или несколько через запятую "
+                    "(например <code>4987,5002</code>). Это заменит текущий выбор.",
+                    parse_mode="HTML",
+                    reply_markup=_build_shops_big_menu(),
+                )
+            else:
+                await update.message.reply_text(
+                    selector_text,
+                    parse_mode="HTML",
+                    reply_markup=_build_selector_with_menu(allowed_sorted, selected_sorted),
+                )
         else:
             context.user_data["selected_shop_ids"] = allowed
             welcome_authorized = (
@@ -336,21 +385,36 @@ async def shops_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_user_authorized(update.effective_user.id, update.effective_user.username):
         await update.message.reply_text("⛔ Доступ запрещён.")
         return
-    user_info = get_user_info_for_authorized(update.effective_user.id, update.effective_user.username)
-    allowed = _get_effective_allowed_shop_ids(user_info)
+    allowed = await _refresh_allowed_shop_ids(update, context)
+    if not allowed:
+        return
     if len(allowed) <= 1:
         await update.message.reply_text("У вас доступен один магазин, выбор не требуется.")
         return
-    context.user_data["allowed_shop_ids"] = allowed
-    selected = context.user_data.get("selected_shop_ids") or []
-    selector_text = (
-        "Выберите магазины для работы (нажмите кнопку, чтобы включить/выключить).\n"
-        "<b>✅</b> — выбран, <b>⭕</b> — не выбран."
-    )
+    selected = [int(s) for s in (context.user_data.get("selected_shop_ids") or [])]
+    allowed_sorted = sorted([int(s) for s in allowed])
+    context.user_data["allowed_shop_ids"] = allowed_sorted
+
+    if len(allowed_sorted) <= SHOPS_INLINE_MAX:
+        selector_text = (
+            "Выберите магазины для работы (нажмите кнопку, чтобы включить/выключить).\n"
+            "<b>✅</b> — выбран, <b>⭕</b> — не выбран."
+        )
+        await update.message.reply_text(
+            selector_text,
+            parse_mode="HTML",
+            reply_markup=_build_selector_with_menu(allowed_sorted, selected),
+        )
+        return
+
+    # Большой список: только быстрый режим (ввод ID)
+    context.user_data["shops_big_mode"] = True
     await update.message.reply_text(
-        selector_text,
+        "У вас доступно много магазинов.\n\n"
+        "Быстрый выбор: отправьте ID магазина (например <code>4987</code>) или несколько через запятую "
+        "(например <code>4987,5002</code>). Это заменит текущий выбор.",
         parse_mode="HTML",
-        reply_markup=_build_selector_with_menu(allowed, selected),
+        reply_markup=_build_shops_big_menu(),
     )
 
 
@@ -442,11 +506,75 @@ async def shop_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         selected_set.add(sid)
     context.user_data["selected_shop_ids"] = sorted(selected_set)
-    new_markup = _build_selector_with_menu(allowed, context.user_data["selected_shop_ids"])
+    allowed_sorted = sorted([int(s) for s in allowed])
+    new_markup = _build_selector_with_menu(allowed_sorted, context.user_data["selected_shop_ids"])
     try:
         await query.edit_message_reply_markup(reply_markup=new_markup)
     except BadRequest:
         pass
+
+
+async def shops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback-обработчик управления магазинами (поиск/пагинация/сброс/готово)."""
+    query = update.callback_query
+    data = query.data or ""
+    await query.answer()
+
+    allowed = sorted([int(s) for s in (context.user_data.get("allowed_shop_ids") or [])])
+    selected = sorted([int(s) for s in (context.user_data.get("selected_shop_ids") or [])])
+
+    if data == "shops:noop":
+        return
+
+    if data == "shops:reset":
+        context.user_data["selected_shop_ids"] = []
+        if len(allowed) > SHOPS_INLINE_MAX:
+            new_markup = _build_shops_big_menu()
+        else:
+            new_markup = _build_selector_with_menu(allowed, [])
+        try:
+            await query.edit_message_reply_markup(reply_markup=new_markup)
+        except BadRequest:
+            pass
+        return
+
+    if data == "shops:done":
+        chosen = sorted([int(s) for s in (context.user_data.get("selected_shop_ids") or [])])
+        if not chosen and len(allowed) > 1:
+            await query.message.reply_text("⚠️ Не выбран ни один магазин. Выберите хотя бы один.")
+        else:
+            txt = ", ".join(str(x) for x in chosen) if chosen else "—"
+            await query.message.reply_text(f"✅ Выбранные магазины: <code>{txt}</code>", parse_mode="HTML")
+        return
+
+    if data == "shops:selected":
+        chosen = sorted([int(s) for s in (context.user_data.get("selected_shop_ids") or [])])
+        if not chosen:
+            await query.message.reply_text("Сейчас не выбран ни один магазин.")
+            return
+        # Чтобы не упереться в лимиты Telegram, показываем первые N и общее количество
+        limit = 100
+        head = chosen[:limit]
+        txt = ", ".join(str(x) for x in head)
+        suffix = f"\n… и ещё {len(chosen) - limit}" if len(chosen) > limit else ""
+        await query.message.reply_text(
+            f"📋 Выбрано магазинов: <b>{len(chosen)}</b>\n<code>{txt}</code>{suffix}",
+            parse_mode="HTML",
+        )
+        return
+
+    if data == "shops:clear_selected":
+        context.user_data["selected_shop_ids"] = []
+        if len(allowed) > SHOPS_INLINE_MAX:
+            new_markup = _build_shops_big_menu()
+        else:
+            new_markup = _build_selector_with_menu(allowed, [])
+        try:
+            await query.edit_message_reply_markup(reply_markup=new_markup)
+        except BadRequest:
+            pass
+        await query.message.reply_text("🗑 Выбранные магазины очищены.")
+        return
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -508,6 +636,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(access_denied_message, parse_mode='Markdown')
             return
 
+        # Обновление списка магазинов при первом сообщении после простоя (TTL)
+        fetched_at = float(context.user_data.get("allowed_shop_ids_fetched_at") or 0.0)
+        ttl = int(getattr(settings, "SHOPS_CACHE_TTL", 3600))
+        if not fetched_at or (time.time() - fetched_at > ttl):
+            allowed_refreshed = await _refresh_allowed_shop_ids(update, context)
+            if not allowed_refreshed:
+                return
+
         # Диалог задания периода (два шага)
         awaiting = context.user_data.get("awaiting_period")
         if awaiting == "start":
@@ -552,14 +688,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        user_info = get_user_info_for_authorized(user.id, user.username)
-        allowed_shop_ids = _get_effective_allowed_shop_ids(user_info)
-        context.user_data["allowed_shop_ids"] = allowed_shop_ids
+        allowed_shop_ids = list(context.user_data.get("allowed_shop_ids") or [])
+        if not allowed_shop_ids:
+            # если нет магазинов — блокируем работу (по требованиям)
+            await update.message.reply_text(
+                "⛔ У вас нет доступных магазинов для аналитики.\n\n"
+                "Обратитесь к администратору для выдачи доступа."
+            )
+            return
 
         if len(allowed_shop_ids) > 1:
             selected_shop_ids = list(context.user_data.get("selected_shop_ids") or [])
             selected_shop_ids = [int(s) for s in selected_shop_ids]
             if not selected_shop_ids:
+                # быстрый режим (без /shops): если пользователь прислал ID(ы) магазина
+                text = (question or "").strip()
+                if re.fullmatch(r"\d+(?:\s*[, ]\s*\d+)*", text or ""):
+                    parts = [p for p in re.split(r"[, ]+", text) if p]
+                    ids = []
+                    for p in parts:
+                        try:
+                            ids.append(int(p))
+                        except ValueError:
+                            pass
+                    allowed_set = set(int(s) for s in allowed_shop_ids)
+                    ids = sorted(set([i for i in ids if i in allowed_set]))
+                    if ids:
+                        context.user_data["selected_shop_ids"] = ids
+                        await update.message.reply_text(
+                            f"✅ Выбрано магазинов: {len(ids)}. Активные: <code>{', '.join(str(x) for x in ids[:10])}</code>"
+                            + (" ..." if len(ids) > 10 else ""),
+                            parse_mode="HTML",
+                        )
+                        return
                 # Пустой список выбранных магазинов — не выполняем анализ, показываем ошибку и выбор
                 warning_msg = (
                     "⚠️ <b>Сначала выберите магазины</b>\n\n"
@@ -570,9 +731,50 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(
                     "Нажмите кнопку магазина, чтобы включить или выключить его. <b>✅</b> — выбран, <b>⭕</b> — не выбран.",
                     parse_mode="HTML",
-                    reply_markup=_build_selector_with_menu(allowed_shop_ids, []),
+                    reply_markup=_build_shops_big_menu() if len(allowed_shop_ids) > SHOPS_INLINE_MAX else _build_selector_with_menu(allowed_shop_ids, []),
                 )
                 return
+            else:
+                # Команды управления выбранными магазинами:
+                # "+ 4987" / "+ 4987,5002" — добавить
+                # "- 4987" / "- 4987 5002" — убрать
+                text = (question or "").strip()
+                m = re.fullmatch(r"([+-])\s*(\d+(?:\s*[, ]\s*\d+)*)", text)
+                if m:
+                    sign = m.group(1)
+                    ids_part = m.group(2)
+                    parts = [p for p in re.split(r"[, ]+", ids_part) if p]
+                    ids = []
+                    for p in parts:
+                        try:
+                            ids.append(int(p))
+                        except ValueError:
+                            pass
+                    allowed_set = set(int(s) for s in allowed_shop_ids)
+                    ids = [i for i in ids if i in allowed_set]
+                    if not ids:
+                        await update.message.reply_text(
+                            "⚠️ Указанные магазины не найдены в вашем списке доступа.",
+                        )
+                        return
+                    selected_set = set(int(s) for s in selected_shop_ids)
+                    if sign == "+":
+                        selected_set.update(ids)
+                    else:
+                        selected_set.difference_update(ids)
+                    new_selected = sorted(selected_set)
+                    context.user_data["selected_shop_ids"] = new_selected
+                    if not new_selected:
+                        await update.message.reply_text(
+                            "🗑 Выбранные магазины очищены. Выберите хотя бы один магазин.",
+                        )
+                        return
+                    await update.message.reply_text(
+                        f"✅ Выбрано магазинов: {len(new_selected)}. Активные: <code>{', '.join(str(x) for x in new_selected[:10])}</code>"
+                        + (" ..." if len(new_selected) > 10 else ""),
+                        parse_mode="HTML",
+                    )
+                    return
         else:
             selected_shop_ids = allowed_shop_ids
             context.user_data["selected_shop_ids"] = selected_shop_ids
@@ -720,6 +922,7 @@ def get_handlers():
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
         CallbackQueryHandler(cmd_help_callback, pattern="^cmd_help$"),
         CallbackQueryHandler(cmd_period_callback, pattern="^cmd_period$"),
+        CallbackQueryHandler(shops_callback, pattern="^shops:"),
         CallbackQueryHandler(shop_toggle_callback, pattern="^shop_toggle:"),
         CallbackQueryHandler(export_excel_callback, pattern="^export_excel$"),
     ]

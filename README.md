@@ -31,7 +31,7 @@ docker exec -it ai-analyst python user_manager.py list
 ```
 ### Добавить пользователя
 ```
-docker exec -it ai-analyst python user_manager.py add <user_id> <username> <Имя Фамилия> <role> <"4987,4988">
+docker exec -it ai-analyst python user_manager.py add <user_id> <username> <Имя Фамилия> <role>
 ```
 ## Управление логированием
 ### Просмотр последних 100 строк
@@ -73,9 +73,8 @@ docker exec -it ai-analyst python scripts/clean_logs.py --clean
 Telegram API работает через VPN.
 
 ## Ограничение доступа к данным других магазинов
-- доступные магазины для пользователя указываются в allowed_users.json в списке shop_ids, отдельно для каждого пользователя
-- если список пустой - для пользователя доступны все магазины
-- список всех доступных магазинов указывается в allowed_users.json в all_shop_ids
+- доступные магазины для пользователя берутся из internal API по Telegram user_id (см. ниже)
+- если API возвращает пустой список или недоступен — бот блокирует аналитику и просит обратиться к администратору
 
 ## Получение доступных магазинов для Customers
 https://app.rees46.ru/api/internal/shops-by-telegram/578031

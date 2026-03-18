@@ -60,4 +60,4 @@ services:
 
 networks:
   rees46:
-    external: true
+    external: false

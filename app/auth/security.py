@@ -8,7 +8,8 @@ from config.settings import settings
 class SecurityManager:
     """Менеджер безопасности и авторизации с загрузкой из JSON файла"""
 
-    # Ключ в JSON для общего списка всех магазинов (пустой shop_ids у пользователя = доступ ко всем из этого списка)
+    # Исторический ключ в JSON для общего списка всех магазинов.
+    # В текущей версии список магазинов берётся из internal API shops-by-telegram/<user_id>.
     ALL_SHOP_IDS_KEY = "all_shop_ids"
 
     def __init__(self):
@@ -26,7 +27,7 @@ class SecurityManager:
             return 0
 
     def _load_allowed_users(self) -> None:
-        """Загружает список разрешенных пользователей и общий список магазинов из JSON файла"""
+        """Загружает список разрешенных пользователей из JSON файла."""
         try:
             if not os.path.exists(self.config_path):
                 logger.warning(f"Auth config file not found: {self.config_path}")
