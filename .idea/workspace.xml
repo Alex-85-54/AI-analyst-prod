@@ -4,10 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="56552920-b1c5-45be-8e85-71d4f9488cc7" name="Changes" comment="fix(common): dockerfile and build">
-      <change beforePath="$PROJECT_DIR$/.dockerignore" beforeDir="false" afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="56552920-b1c5-45be-8e85-71d4f9488cc7" name="Changes" comment="fix(common): dockerfile and build" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -65,12 +62,12 @@
       </RecentBranches>
     </option>
   </component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/rees46/ai-analyst.git&quot;,
-    &quot;accountId&quot;: &quot;16a7552f-6a00-4aec-8e07-f535aff27210&quot;
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "git@github.com:rees46/ai-analyst.git",
+    "accountId": "16a7552f-6a00-4aec-8e07-f535aff27210"
   }
-}</component>
+}]]></component>
   <component name="KubernetesApiPersistence">{}</component>
   <component name="KubernetesApiProvider">{
   &quot;configuredContexts&quot;: [
@@ -121,8 +118,8 @@
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "ai.playground.ignore.import.keys.banner.in.settings": "true",
     "full.screen.before.presentation.mode": "false",
-    "git-widget-placeholder": "develop",
-    "last_opened_file_path": "/media/alex/afd38d35-3963-4272-9b6c-973ab1698dd5/Боты/Bot_Option_cursor",
+    "git-widget-placeholder": "master",
+    "last_opened_file_path": "/media/alex/afd38d35-3963-4272-9b6c-973ab1698dd5/REES46/Analyze",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -174,6 +171,7 @@
       <workItem from="1772091398331" duration="14714000" />
       <workItem from="1772182512131" duration="11107000" />
       <workItem from="1772272682490" duration="13000" />
+      <workItem from="1773644879057" duration="1884000" />
     </task>
     <task id="LOCAL-00001" summary="chore(common): git">
       <option name="closed" value="true" />
