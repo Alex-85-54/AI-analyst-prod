@@ -560,8 +560,10 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Запускает бота"""
-    # Замените 'YOUR_TELEGRAM_TOKEN' на токен вашего бота
-    application = Application.builder().token("***REMOVED_TELEGRAM_TOKEN***").build()
+    telegram_token = os.environ.get('TELEGRAM_TOKEN')
+    if not telegram_token:
+        raise RuntimeError("TELEGRAM_TOKEN не задан. Укажите его в переменных окружения (.env).")
+    application = Application.builder().token(telegram_token).build()
     
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start))
